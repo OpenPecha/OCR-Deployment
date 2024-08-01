@@ -3,15 +3,17 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 import onnxruntime as ort
-from MonlamOCR.Data import Line, OCRConfig, LineDetectionConfig
+from MonlamOCR.Data import Line, LineData, OCRConfig, LineDetectionConfig
 from pyctcdecode import build_ctcdecoder
 from MonlamOCR.Utils import (
     create_dir,
+    extract_line_images,
     get_file_name,
     binarize,
     calculate_steps,
     calculate_paddings,
     generate_patches,
+    get_line_data,
     normalize,
     pad_image,
     sigmoid,
@@ -192,8 +194,12 @@ class OCRInference:
 
     def run(self, line_image: npt.NDArray) -> str:
         line_image = self._prepare_ocr_line(line_image)
+
         if self._swap_hw:
             line_image = np.transpose(line_image, axes=[0, 2, 1])
+        
+        if not self._squeeze_channel_dim:
+            line_image = np.expand_dims(line_image, axis=1)
 
         logits = self._predict(line_image)
         text = self._decode(logits)
@@ -216,26 +222,27 @@ class OCRPipeline:
     def _predict(self, image_path: str, k_factor: float) -> tuple[list[str], list[Line]]:
         image = cv2.imread(image_path)
         line_mask = self.line_inference.predict(image, fix_height=True)
-        angle = get_rotation_angle_from_lines(line_mask)
-        rot_mask = rotate_from_angle(line_mask, angle)
-        rot_img = rotate_from_angle(image, angle)
-
-        line_contours = get_contours(rot_mask)
-        line_data = [build_line_data(x) for x in line_contours]
-        line_data = [x for x in line_data if x.bbox.h > 10]
-        sorted_lines, _ = sort_lines_by_threshold2(rot_mask, line_data)
-        sorted_line_images = [extract_line(line=x, image=rot_img, k_factor=k_factor) for x in sorted_lines]
+        line_data = get_line_data(image, line_mask)
+        line_images = extract_line_images(line_data, k_factor)
 
         page_text = []
-        filtered_line_data = []
+        filtered_lines = []
 
-        for line_img, line_info in zip(sorted_line_images, line_data):
+        for line_img, line_info in zip(line_images, line_data.lines):
             pred = self.ocr_inference.run(line_img)
             pred = pred.strip()
             
             if pred != "":
                 page_text.append(pred)
-                filtered_line_data.append(line_info)
+                filtered_lines.append(line_info)
+
+        filtered_line_data = LineData
+        (
+            line_data.image,
+            line_data.prediction,
+            line_data.angle,
+            filtered_lines
+        )
 
         return page_text, filtered_line_data
     

@@ -5,8 +5,14 @@ import math
 import statistics
 import numpy as np
 import numpy.typing as npt
-from MonlamOCR.Data import Line, BBox, OCRConfig, LineDetectionConfig
+from datetime import datetime
+from MonlamOCR.Data import Line, BBox, LineData, OCRConfig, LineDetectionConfig
 
+
+def get_utc_time():
+    t = datetime.now()
+    s = t.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    s = s.split(" ")
 
 def get_file_name(file_path: str) -> str:
     name_segments = os.path.basename(file_path).split(".")[:-1]
@@ -425,6 +431,24 @@ def build_line_data(contour: npt.NDArray) -> Line:
     return Line(contour, bbox, (x_center, y_center))
 
 
+def get_text_bbox(line_data: LineData):
+    all_bboxes = [x.bbox for x in line_data.lines]
+    min_x = min(a.x for a in all_bboxes)
+    min_y = min(a.y for a in all_bboxes)
+
+    max_w = max(a.w for a in all_bboxes)
+    max_h = all_bboxes[-1].y+all_bboxes[-1].h
+
+    bbox = BBox(
+        min_x,
+        min_y,
+        max_w,
+        max_h
+    )
+
+    return bbox
+
+
 def extract_line(line: Line, image: npt.NDArray, k_factor: float = 1.2) -> npt.NDArray:
     bbox_h = line.bbox.h
 
@@ -443,6 +467,42 @@ def extract_line(line: Line, image: npt.NDArray, k_factor: float = 1.2) -> npt.N
 
     return masked_line
 
+def pol2cart(theta, rho):
+    x = rho * np.cos(theta)
+    y = rho * np.sin(theta)
+    return x, y
+
+
+def cart2pol(x, y):
+    theta = np.arctan2(y, x)
+    rho = np.hypot(x, y)
+    return theta, rho
+
+
+def rotate_contour(cnt, center_x: int, center_y: int, angle: float):
+    cnt_norm = cnt - [center_x, center_y]
+
+    coordinates = cnt_norm[:, 0, :]
+    xs, ys = coordinates[:, 0], coordinates[:, 1]
+    thetas, rhos = cart2pol(xs, ys)
+
+    thetas = np.rad2deg(thetas)
+    thetas = (thetas + angle) % 360
+    thetas = np.deg2rad(thetas)
+
+    xs, ys = pol2cart(thetas, rhos)
+
+    cnt_norm[:, 0, 0] = xs
+    cnt_norm[:, 0, 1] = ys
+
+    cnt_rotated = cnt_norm + [center_x, center_y]
+    cnt_rotated = cnt_rotated.astype(np.int32)
+
+    return cnt_rotated
+
+def optimize_countour(cnt, e=0.001):
+    epsilon = e * cv2.arcLength(cnt, True)
+    return cv2.approxPolyDP(cnt, epsilon, True)
 
 def pad_to_width(
     img: npt.NDArray, target_width: int, target_height: int, padding: str
@@ -503,6 +563,39 @@ def pad_to_height(
     out_img = np.hstack([left_stack, tmp_img, right_stack])
 
     return out_img
+
+"""
+These are basically the two step inbetween the raw line prediction and the OCR pass
+"""
+def get_line_data(image: npt.NDArray, line_mask: npt.NDArray) -> LineData:
+    angle = get_rotation_angle_from_lines(line_mask)
+
+    rot_mask = rotate_from_angle(line_mask, angle)
+    rot_img = rotate_from_angle(image, angle)
+
+    line_contours = get_contours(rot_mask)
+    line_data = [build_line_data(x) for x in line_contours]
+    line_data = [x for x in line_data if x.bbox.h > 10]
+    sorted_lines, _ = sort_lines_by_threshold2(rot_mask, line_data)
+
+    data = LineData(
+        rot_img,
+        rot_mask,
+        angle,
+        sorted_lines
+    )
+
+    return data
+
+
+def extract_line_images(data: LineData,  k_factor: float = 0.75, binarization: bool = True):
+    line_images = [extract_line(x, data.image, k_factor) for x in data.lines]
+
+    if binarization:
+        line_images = [binarize(x) for x in line_images]
+
+    return line_images
+
 
 
 def get_charset(charset: str) -> list[str]:
