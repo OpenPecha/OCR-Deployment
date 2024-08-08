@@ -131,4 +131,7 @@ dmypy.json
 # Custom
 Data
 Output
+Models
 MonlamOCR/Models
+
+Map_eText.ipynb
