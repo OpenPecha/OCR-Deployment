@@ -6,7 +6,41 @@ import statistics
 import numpy as np
 import numpy.typing as npt
 from datetime import datetime
-from MonlamOCR.Data import Line, BBox, LineData, OCRConfig, LineDetectionConfig
+import matplotlib.pyplot as plt
+from MonlamOCR.Data import (
+    LayoutDetectionConfig,
+    Line,
+    BBox,
+    LineData,
+    OCRConfig,
+    LineDetectionConfig,
+)
+
+
+def show_image(
+    image: np.array, cmap: str = "", axis="off", fig_x: int = 24, fix_y: int = 13
+) -> None:
+    plt.figure(figsize=(fig_x, fix_y))
+    plt.axis(axis)
+
+    if cmap != "":
+        plt.imshow(image, cmap=cmap)
+    else:
+        plt.imshow(image)
+
+
+def show_overlay(
+    image: np.array,
+    mask: np.array,
+    alpha=0.4,
+    axis="off",
+    fig_x: int = 24,
+    fix_y: int = 13,
+):
+    plt.figure(figsize=(fig_x, fix_y))
+    plt.axis(axis)
+    plt.imshow(image)
+    plt.imshow(mask, alpha=alpha)
 
 
 def get_utc_time():
@@ -14,10 +48,12 @@ def get_utc_time():
     s = t.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     s = s.split(" ")
 
+
 def get_file_name(file_path: str) -> str:
     name_segments = os.path.basename(file_path).split(".")[:-1]
     name = "".join(f"{x}." for x in name_segments)
     return name.rstrip(".")
+
 
 def create_dir(dir_name: str) -> None:
     if not os.path.exists(dir_name):
@@ -431,20 +467,15 @@ def build_line_data(contour: npt.NDArray) -> Line:
     return Line(contour, bbox, (x_center, y_center))
 
 
-def get_text_bbox(line_data: LineData):
-    all_bboxes = [x.bbox for x in line_data.lines]
+def get_text_bbox(lines: list[Line]):
+    all_bboxes = [x.bbox for x in lines]
     min_x = min(a.x for a in all_bboxes)
     min_y = min(a.y for a in all_bboxes)
 
     max_w = max(a.w for a in all_bboxes)
-    max_h = all_bboxes[-1].y+all_bboxes[-1].h
+    max_h = all_bboxes[-1].y + all_bboxes[-1].h
 
-    bbox = BBox(
-        min_x,
-        min_y,
-        max_w,
-        max_h
-    )
+    bbox = BBox(min_x, min_y, max_w, max_h)
 
     return bbox
 
@@ -466,6 +497,7 @@ def extract_line(line: Line, image: npt.NDArray, k_factor: float = 1.2) -> npt.N
     masked_line = mask_n_crop(image, tmp_img)
 
     return masked_line
+
 
 def pol2cart(theta, rho):
     x = rho * np.cos(theta)
@@ -500,9 +532,11 @@ def rotate_contour(cnt, center_x: int, center_y: int, angle: float):
 
     return cnt_rotated
 
+
 def optimize_countour(cnt, e=0.001):
     epsilon = e * cv2.arcLength(cnt, True)
     return cv2.approxPolyDP(cnt, epsilon, True)
+
 
 def pad_to_width(
     img: npt.NDArray, target_width: int, target_height: int, padding: str
@@ -564,9 +598,12 @@ def pad_to_height(
 
     return out_img
 
+
 """
 These are basically the two step inbetween the raw line prediction and the OCR pass
 """
+
+
 def get_line_data(image: npt.NDArray, line_mask: npt.NDArray) -> LineData:
     angle = get_rotation_angle_from_lines(line_mask)
 
@@ -578,24 +615,20 @@ def get_line_data(image: npt.NDArray, line_mask: npt.NDArray) -> LineData:
     line_data = [x for x in line_data if x.bbox.h > 10]
     sorted_lines, _ = sort_lines_by_threshold2(rot_mask, line_data)
 
-    data = LineData(
-        rot_img,
-        rot_mask,
-        angle,
-        sorted_lines
-    )
+    data = LineData(rot_img, rot_mask, angle, sorted_lines)
 
     return data
 
 
-def extract_line_images(data: LineData,  k_factor: float = 0.75, binarization: bool = True):
+def extract_line_images(
+    data: LineData, k_factor: float = 0.75, binarization: bool = True
+):
     line_images = [extract_line(x, data.image, k_factor) for x in data.lines]
 
     if binarization:
         line_images = [binarize(x) for x in line_images]
 
     return line_images
-
 
 
 def get_charset(charset: str) -> list[str]:
@@ -642,10 +675,21 @@ def read_line_model_config(config_file: str) -> LineDetectionConfig:
 
     onnx_model_file = f"{model_dir}/{json_content['onnx-model']}"
     patch_size = int(json_content["patch_size"])
-    
-    config = LineDetectionConfig(
-        onnx_model_file,
-        patch_size
-    )
+
+    config = LineDetectionConfig(onnx_model_file, patch_size)
+
+    return config
+
+
+def read_layout_model_config(config_file: str) -> LayoutDetectionConfig:
+    model_dir = os.path.dirname(config_file)
+    file = open(config_file, encoding="utf-8")
+    json_content = json.loads(file.read())
+
+    onnx_model_file = f"{model_dir}/{json_content['onnx-model']}"
+    patch_size = int(json_content["patch_size"])
+    classes = json_content["classes"]
+
+    config = LayoutDetectionConfig(onnx_model_file, patch_size, classes)
 
     return config

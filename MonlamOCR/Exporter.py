@@ -1,36 +1,59 @@
 import abc
+import json
 import logging
 import numpy as np
 import numpy.typing as npt
 from xml.dom import minidom
 import xml.etree.ElementTree as etree
 from MonlamOCR.Data import BBox, Line, LayoutData, LineData
-from MonlamOCR.Utils import get_utc_time, rotate_contour, optimize_countour
+from MonlamOCR.Utils import (
+    get_text_bbox,
+    get_utc_time,
+    rotate_contour,
+    optimize_countour,
+)
 
 
 class Exporter:
-    def __init__(self):
+    def __init__(self, output_dir: str):
+        self.output_dir = output_dir
         logging.info("Init Exporter")
 
     @classmethod
     def __subclasshook__(cls, subclass):
-        return (hasattr(subclass, 'export_layout') and
-                callable(subclass.export_layout) or
-                NotImplemented)
+        return (
+            hasattr(subclass, "export_layout")
+            and callable(subclass.export_layout)
+            or NotImplemented
+        )
 
     @classmethod
     def __subclasshook__(cls, subclass):
-        return (hasattr(subclass, 'export_lines') and
-                callable(subclass.export_lines) or
-                NotImplemented)
+        return (
+            hasattr(subclass, "export_lines")
+            and callable(subclass.export_lines)
+            or NotImplemented
+        )
 
     @abc.abstractmethod
-    def export_layout(self, image: npt.NDArray, image_name: str, layout_data: LayoutData, text_lines: list[str]):
+    def export_layout(
+        self,
+        image: npt.NDArray,
+        image_name: str,
+        layout_data: LayoutData,
+        text_lines: list[str],
+    ):
         """Builds the characters et for encoding the labels."""
         raise NotImplementedError
 
     @abc.abstractmethod
-    def export_lines(self, image: npt.NDArray, image_name: str, line_data: LineData, text_lines: list[str]):
+    def export_lines(
+        self,
+        image: npt.NDArray,
+        image_name: str,
+        line_data: LineData,
+        text_lines: list[str],
+    ):
         """Builds the characters et for encoding the labels."""
         raise NotImplementedError
 
@@ -52,17 +75,17 @@ class Exporter:
         return points
 
     @staticmethod
-    def get_bbox_points(bbox: tuple[int]):
+    def get_bbox_points(bbox: BBox):
         points = f"{bbox.x},{bbox.y} {bbox.x + bbox.w},{bbox.y} {bbox.x + bbox.w},{bbox.y + bbox.h} {bbox.x},{bbox.y + bbox.h}"
         return points
-    
+
 
 class PageXMLExporter(Exporter):
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, output_dir: str) -> None:
+        super().__init__(output_dir)
         logging.info("Init XML Exporter")
 
-    def get_text_line_block(self, coordinate, baseline_points, index, unicode_text):
+    def get_text_line_block(self, coordinate, index: int, unicode_text: str):
         text_line = etree.Element(
             "Textline", id="", custom=f"readingOrder {{index:{index};}}"
         )
@@ -74,8 +97,6 @@ class PageXMLExporter(Exporter):
 
         coords_points = etree.SubElement(text_line, "Coords")
         coords_points.attrib["points"] = text_line_coords
-        baseline = etree.SubElement(text_line, "Baseline")
-        baseline.attrib["points"] = baseline_points
 
         text_equiv = etree.SubElement(text_line, "TextEquiv")
         unicode_field = etree.SubElement(text_equiv, "Unicode")
@@ -86,25 +107,25 @@ class PageXMLExporter(Exporter):
     def get_line_baseline(self, bbox: tuple[int, int, int, int]) -> str:
         return f"{bbox.x},{bbox.y + bbox.h} {bbox.x + bbox.w},{bbox.y + bbox.h}"
 
-    def build_xml_document(self,
-                           image: npt.NDArray,
-                           image_name: str,
-                           images: tuple[int],
-                           text_bbox: BBox,
-                           lines: list[Line],
-                           margins: tuple[int],
-                           captions: tuple[int],
-                           text_lines: list[str] | None,
-                           angle: float
-                           ):
+    def build_xml_document(
+        self,
+        image: npt.NDArray,
+        image_name: str,
+        images: tuple[int],
+        text_bbox: str,
+        lines: list[Line],
+        margins: tuple[int],
+        captions: tuple[int],
+        text_lines: list[str] | None,
+    ):
         root = etree.Element("PcGts")
-        root.attrib[
-            "xmlns"
-        ] = "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15"
+        root.attrib["xmlns"] = (
+            "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15"
+        )
         root.attrib["xmlns:xsi"] = "http://www.w3.org/2001/XMLSchema-instance"
-        root.attrib[
-            "xsi:schemaLocation"
-        ] = "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15 http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15/pagecontent.xsd"
+        root.attrib["xsi:schemaLocation"] = (
+            "http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15 http://schema.primaresearch.org/PAGE/gts/pagecontent/2013-07-15/pagecontent.xsd"
+        )
 
         metadata = etree.SubElement(root, "Metadata")
         creator = etree.SubElement(metadata, "Creator")
@@ -132,38 +153,21 @@ class PageXMLExporter(Exporter):
         text_region.attrib["custom"] = "readingOrder {index:0;}"
 
         text_region_coords = etree.SubElement(text_region, "Coords")
-        text_region_coords.attrib["points"] = f"{text_bbox.x},{text_bbox.y} {text_bbox.x+text_bbox.w},{text_bbox.y} {text_bbox.x+text_bbox.w},{text_bbox.y+text_bbox.h} {text_bbox.x},{text_bbox.y+text_bbox.h}"
+        text_region_coords.attrib["points"] = text_bbox
 
-        do_rotate = False
-        x_center = image.shape[1] // 2
-        y_center = image.shape[0] // 2
-        
-        if angle != abs(0):
-            do_rotate = True
-
-        for i in range(0, len(lines)):
-            #bbox_line_coords = self.get_bbox_points(lines[i].bbox)
-
-            line_contour = lines[i].contour
-            line_bbox = lines[i].bbox
-
-            if do_rotate:
-                line_contour = rotate_contour(line_contour, x_center, y_center, angle)
-            
-            line_contour = optimize_countour(line_contour)
-
-            text_coords = self.get_text_points(line_contour)
-            base_line_coords = self.get_line_baseline(line_bbox)
-
+        for l_idx, line in enumerate(lines):
             if text_lines is not None and len(text_lines) > 0:
                 text_region.append(
-                    self.get_text_line_block(coordinate=text_coords, baseline_points=base_line_coords, index=i,
-                                             unicode_text=text_lines[i])
+                    self.get_text_line_block(
+                        coordinate=line, index=l_idx, unicode_text=text_lines[l_idx]
+                    )
                 )
             else:
                 text_region.append(
-                    self.get_text_line_block(coordinate=text_coords, baseline_points=base_line_coords, index=i,
-                                             unicode_text=""))
+                    self.get_text_line_block(
+                        coordinate=line, index=l_idx, unicode_text=""
+                    )
+                )
 
         if len(images) > 0:
             for idx, bbox in enumerate(images):
@@ -179,7 +183,9 @@ class PageXMLExporter(Exporter):
                 margin_region = etree.SubElement(page, "TextRegion")
                 margin_region.attrib["id"] = f"margin_1234_{idx}"
                 margin_region.attrib["type"] = "margin"
-                margin_region.attrib["custom"] = f"readingOrder {{index: {str(idx)};}} structure {{type:marginalia;}}"
+                margin_region.attrib["custom"] = (
+                    f"readingOrder {{index: {str(idx)};}} structure {{type:marginalia;}}"
+                )
 
                 coords_points = etree.SubElement(margin_region, "Coords")
                 coords_points.attrib["points"] = self.get_bbox_points(bbox)
@@ -189,7 +195,9 @@ class PageXMLExporter(Exporter):
                 captions_region = etree.SubElement(page, "TextRegion")
                 captions_region.attrib["id"] = f"caption_1234_{idx}"
                 captions_region.attrib["type"] = "caption"
-                captions_region.attrib["custom"] = f"readingOrder {{index: {str(idx)};}} structure {{type:caption;}}"
+                captions_region.attrib["custom"] = (
+                    f"readingOrder {{index: {str(idx)};}} structure {{type:caption;}}"
+                )
 
                 coords_points = etree.SubElement(captions_region, "Coords")
                 coords_points.attrib["points"] = self.get_bbox_points(bbox)
@@ -199,47 +207,95 @@ class PageXMLExporter(Exporter):
 
         return parsed_xml
 
-    def export_layout(self, image: np.array, image_name: str, layout_data: LayoutData, text_lines: list[str],
-                      output_dir: str):
-        image_boxes = [self.get_bbox(x) for x in layout_data.images]
-        caption_boxes = [self.get_bbox(x) for x in layout_data.captions]
-        margin_boxes = [self.get_bbox(x) for x in layout_data.margins]
-        line_boxes = [self.get_bbox(x.bbox) for x in layout_data.lines]
-        text_bbox = self.get_bbox(layout_data.text_bboxes[0])
+    def export_lines(
+        self,
+        image: np.array,
+        image_name: str,
+        line_data: LineData,
+        text_lines: list[str],
+        optimize: bool = True,
+        bbox: bool = False,
+    ):
+        lines = [x for x in line_data.lines]
 
-        xml_doc = self.build_xml_document(
-            image,
-            image_name,
-            images=image_boxes,
-            lines=line_boxes,
-            margins=margin_boxes,
-            captions=caption_boxes,
-            text_region_bbox=text_bbox,
-            text_lines=text_lines
-        )
+        if line_data.angle != abs(0):
+            x_center = image.shape[1] // 2
+            y_center = image.shape[0] // 2
 
-        out_file = f"{output_dir}/{image_name}.xml"
+            for line in lines:
+                line.contour = rotate_contour(
+                    line.contour, x_center, y_center, line_data.angle
+                )
 
-        with open(out_file, "w", encoding='UTF-8') as f:
-            f.write(xml_doc)
+        if optimize:
+            for line in lines:
+                line.contour = optimize_countour(line.contour)
 
-    def export_lines(self, image: np.array, image_name: str, line_data: LineData, text_lines: list[str],
-                     output_dir: str):
-        line_boxes = [self.get_bbox(x.bbox) for x in line_data.lines]
-        text_bbox = self.get_bbox(line_data.bbox)
+        if bbox:
+            plain_lines = [self.get_bbox(x.bbox) for x in lines]
+        else:
+            plain_lines = [self.get_text_points(x.contour) for x in lines]
+
+        text_bbox = get_text_bbox(lines)
+        plain_box = self.get_bbox_points(text_bbox)
 
         xml_doc = self.build_xml_document(
             image,
             image_name,
             images=[],
-            lines=line_boxes,
+            lines=plain_lines,
             margins=[],
             captions=[],
-            text_region_bbox=text_bbox,
-            text_lines=text_lines
+            text_bbox=plain_box,
+            text_lines=text_lines,
         )
 
-        out_file = f"{output_dir}/{image_name}.xml"
+        out_file = f"{self.output_dir}/{image_name}.xml"
 
-        with open(out_file, "w", encoding='UTF-8') as f:
+        with open(out_file, "w", encoding="UTF-8") as f:
             f.write(xml_doc)
+
+
+class JsonExporter(Exporter):
+    def __init__(self, output_dir: str) -> None:
+        super().__init__(output_dir)
+        logging.info("Init JSON Exporter")
+
+    def export_lines(
+        self,
+        image: np.array,
+        image_name: str,
+        line_data: LineData,
+        text_lines: list[str],
+        optimize: bool = True,
+        bbox: bool = False,
+    ):
+        lines = [x for x in line_data.lines]
+
+        if line_data.angle != abs(0):
+            x_center = image.shape[1] // 2
+            y_center = image.shape[0] // 2
+
+            for line in lines:
+                line.contour = rotate_contour(
+                    line.contour, x_center, y_center, line_data.angle
+                )
+
+        if optimize:
+            for line in lines:
+                line.contour = optimize_countour(line.contour)
+
+        if bbox:
+            plain_lines = [self.get_bbox(x.bbox) for x in lines]
+        else:
+            plain_lines = [self.get_text_points(x.contour) for x in lines]
+
+        text_bbox = get_text_bbox(lines)
+        plain_box = self.get_bbox_points(text_bbox)
+
+        json_record = {"image": image_name, "textbox": plain_box, "lines": plain_lines, "text": text_lines}
+
+        out_file = f"{self.output_dir}/{image_name}.jsonl"
+
+        with open(out_file, "w", encoding="UTF-8") as f:
+            json.dump(json_record, f, ensure_ascii=False, indent=1)

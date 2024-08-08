@@ -129,6 +129,9 @@ dmypy.json
 .pyre/
 
 # Custom
+.idea
 Data
 Output
+Models
 MonlamOCR/Models
+Map_eText.ipynb
