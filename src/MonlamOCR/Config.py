@@ -26,7 +26,7 @@ def init_monlam_line_model() -> str:
 
 # download the layout model: https://huggingface.co/BDRC/Photi
 def init_monlam_layout_model() -> str:
-    model_id = "BDRC/Photi"
+    model_id = "BDRC/Photi" 
     model_path = snapshot_download(
         repo_id=model_id,
         repo_type="model",
