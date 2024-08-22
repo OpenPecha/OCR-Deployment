@@ -17,3 +17,11 @@ data = {
 }
 Transcript = send_request_to_api("/process", data=data, method="POST")
 print(Transcript)
+
+
+
+# Some example images to test the API 
+# https://s3.amazonaws.com/monlam.ai.ocr/Test/input/0001.png
+# https://s3.amazonaws.com/monlam.ai.ocr/Test/input/0002.png
+# https://s3.amazonaws.com/monlam.ai.ocr/Test/input/0003.png
+# https://s3.amazonaws.com/monlam.ai.ocr/Test/input/I3CN78390293.png
