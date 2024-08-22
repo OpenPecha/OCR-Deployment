@@ -16,6 +16,7 @@ def get_page_unicode(line_texts: list) -> str:
     return page_text
 
 
+
 def main():
     line_model_config = init_monlam_line_model()
     ocr_config = init_monla_ocr_model("Woodblock")
@@ -44,6 +45,3 @@ def main():
         print(f"Line Text: {line_text}")
         text = get_page_unicode(page_text)
         Path(f"./data/output/{image_name}.txt").write_text(text)
-
-if __name__ == "__main__":
-    main()
