@@ -27,6 +27,29 @@ Project description goes here.
 None
 ## Docs
 
-<!-- Update the link to the docs -->
+1. To run the API locally 
+    `uvicorn src.MonlamOCR.API:app --reload`
+2. To login to the docker from the terminal and push the docker image build
+    `docker login
+     docker tag fastapi-ocr-app ta4tsering/fastapi-ocr-app:latest
+     docker push ta4tsering/fastapi-ocr-app:latest
+    `
+3. To create a new build instance
+    `docker buildx create --name mybuilder --use
+     docker buildx inspect --bootstrap
 
-Read the docs [here](https://wiki.openpecha.org/#/dev/coding-guidelines).
+4. Build a Multi-Architecture Docker image.
+    `docker buildx build --platform linux/amd64,linux/arm64 -t ocr_pipeline_api --push .
+    `
+5. Install Docker on the server
+    `sudo apt-get update
+     sudo apt-get install -y docker.io
+     sudo systemctl start docker
+     sudo systemctl enable docker
+     sudo systemctl start docker
+     sudo systemctl enable docker
+`
+6. Pull your docker image from from docker hub
+    `docker login
+     docker pull ta4tsering/fastapi-ocr-app:latest
+    `
