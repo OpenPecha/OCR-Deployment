@@ -298,6 +298,8 @@ class OCRPipeline:
 
         page_text = []
         filtered_lines = []
+        curr = {}
+        line_inference = []
 
         for line_img, line_info in zip(line_images, line_data.lines):
             pred = self.ocr_inference.run(line_img)
@@ -306,14 +308,29 @@ class OCRPipeline:
             if pred != "":
                 page_text.append(pred)
                 filtered_lines.append(line_info)
+                curr = {
+                    "line_annotation": {
+                        'center': line_info.center,
+                        'bbox': line_info.bbox,
+                        'contour': (line_info.contour).tolist()
+                    },
+                    "text": pred,
+                }
+                line_inference.append(curr)
+                curr = {}
 
-        filtered_line_data = LineData(
-            line_data.image, line_data.prediction, line_data.angle, filtered_lines
-        )
+        # filtered_line_data = LineData(
+        #     line_data.image, line_data.prediction, line_data.angle, filtered_lines
+        # )
 
-        return page_text, filtered_line_data, line_images
+        return line_inference
     
-    def run_ocr(self, image: npt.NDArray, k_factor: float = 1.2) -> tuple[list[str], LineData, list[npt.NDArray]]:
-        page_text, line_data, line_images = self._predict(image, k_factor)
+    # def run_ocr(self, image: npt.NDArray, k_factor: float = 1.2) -> tuple[list[str], LineData, list[npt.NDArray]]:
+    #     page_text, line_data, line_images = self._predict(image, k_factor)
 
-        return page_text, line_data, line_images
+    #     return page_text, line_data, line_images
+
+    def run_ocr(self, image: npt.NDArray, k_factor: float = 1.2) -> tuple[list[str], LineData, list[npt.NDArray]]:
+        line_inference = self._predict(image, k_factor)
+
+        return line_inference

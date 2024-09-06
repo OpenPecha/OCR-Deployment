@@ -28,7 +28,7 @@ None
 ## Docs
 
 1. To run the API locally 
-    `uvicorn src.MonlamOCR.API:app --reload`
+    `uvicorn src.MonlamOCR.main:app --reload`
 2. To login to the docker from the terminal and push the docker image build
     `docker login
      docker tag fastapi-ocr-app ta4tsering/fastapi-ocr-app:latest
@@ -39,13 +39,11 @@ None
      docker buildx inspect --bootstrap
 
 4. Build a Multi-Architecture Docker image.
-    `docker buildx build --platform linux/amd64,linux/arm64 -t ocr_pipeline_api --push .
+    `docker buildx build --platform linux/amd64,linux/arm64 -t ta4tsering/fastapi-ocr-app --push .
     `
 5. Install Docker on the server
     `sudo apt-get update
      sudo apt-get install -y docker.io
-     sudo systemctl start docker
-     sudo systemctl enable docker
      sudo systemctl start docker
      sudo systemctl enable docker
 `
