@@ -2,10 +2,12 @@ import os
 import cv2
 import json
 import math
+import random
 import statistics
 import numpy as np
+from typing import Dict, List, Tuple
 import numpy.typing as npt
-from datetime import datetime
+from math import ceil
 import matplotlib.pyplot as plt
 from MonlamOCR.Data import (
     LayoutDetectionConfig,
@@ -15,10 +17,11 @@ from MonlamOCR.Data import (
     OCRConfig,
     LineDetectionConfig,
 )
+from datetime import datetime
 
 
 def show_image(
-    image: np.array, cmap: str = "", axis="off", fig_x: int = 24, fix_y: int = 13
+    image: npt.NDArray, cmap: str = "", axis="off", fig_x: int = 24, fix_y: int = 13
 ) -> None:
     plt.figure(figsize=(fig_x, fix_y))
     plt.axis(axis)
@@ -30,8 +33,8 @@ def show_image(
 
 
 def show_overlay(
-    image: np.array,
-    mask: np.array,
+    image: npt.NDArray,
+    mask: npt.NDArray,
     alpha=0.4,
     axis="off",
     fig_x: int = 24,
@@ -44,9 +47,10 @@ def show_overlay(
 
 
 def get_utc_time():
-    t = datetime.now()
-    s = t.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    s = s.split(" ")
+    utc_time = datetime.now()
+    utc_time = utc_time.strftime('%Y-%m-%dT%H:%M:%S')
+
+    return utc_time
 
 
 def get_file_name(file_path: str) -> str:
@@ -64,7 +68,16 @@ def create_dir(dir_name: str) -> None:
             print(f"Failed to create directory at: {dir_name}, {e}")
 
 
-def resize_to_height(image, target_height: int) -> tuple[npt.NDArray, float]:
+def get_random_color() -> Tuple[int, int, int]:
+    rand_r = random.randint(10, 255)
+    rand_g = random.randint(10, 200)
+    rand_b = random.randint(10, 220)
+    color = (rand_r, rand_g, rand_b)
+
+    return color
+
+
+def resize_to_height(image, target_height: int) -> Tuple[npt.NDArray, float]:
     scale_ratio = target_height / image.shape[0]
     image = cv2.resize(
         image,
@@ -74,7 +87,7 @@ def resize_to_height(image, target_height: int) -> tuple[npt.NDArray, float]:
     return image, scale_ratio
 
 
-def resize_to_width(image, target_width: int = 2048) -> tuple[npt.NDArray, float]:
+def resize_to_width(image, target_width: int = 2048) -> Tuple[npt.NDArray, float]:
     scale_ratio = target_width / image.shape[1]
     image = cv2.resize(
         image,
@@ -107,25 +120,32 @@ def binarize(
     return bw
 
 
-def calculate_steps(image: npt.NDArray, patch_size: int = 512) -> tuple[int, int]:
-    x_steps = image.shape[1] / patch_size
-    y_steps = image.shape[0] / patch_size
-
-    x_steps = math.ceil(x_steps)
-    y_steps = math.ceil(y_steps)
-
-    return x_steps, y_steps
-
-
-def calculate_paddings(
-    image: npt.NDArray, x_steps: int, y_steps: int, patch_size: int = 512
-) -> tuple[int, int]:
-    max_x = x_steps * patch_size
-    max_y = y_steps * patch_size
+def get_paddings(image: npt.NDArray, patch_size: int = 512) -> Tuple[int, int]:
+    max_x = ceil(image.shape[1] / patch_size) * patch_size
+    max_y = ceil(image.shape[0] / patch_size) * patch_size
     pad_x = max_x - image.shape[1]
     pad_y = max_y - image.shape[0]
 
     return pad_x, pad_y
+
+
+def tile_image(padded_img: npt.NDArray, patch_size: int = 512):
+    x_steps = int(padded_img.shape[1] / patch_size)
+    y_steps = int(padded_img.shape[0] / patch_size)
+    y_splits = np.split(padded_img, y_steps, axis=0)
+
+    patches = [np.split(x, x_steps, axis=1) for x in y_splits]
+    patches = [x for xs in patches for x in xs]
+
+    return patches, y_steps
+
+
+def stitch_predictions(prediction: npt.NDArray, y_steps: int) -> npt.NDArray:
+    pred_y_split = np.split(prediction, y_steps, axis=0)
+    x_slices = [np.hstack(x) for x in pred_y_split]
+    concat_img = np.vstack(x_slices)
+
+    return concat_img
 
 
 def pad_image(
@@ -141,41 +161,58 @@ def pad_image(
     return padded_img
 
 
-def generate_patches(
-    image: npt.NDArray, x_steps: int, y_steps: int, patch_size: int = 512
-) -> list[npt.NDArray]:
-    patches = []
+def preprocess_image(
+    image: npt.NDArray,
+    patch_size: int = 512,
+    clamp_width: int = 4096,
+    clamp_height: int = 2048,
+    clamp_size: bool = True,
+):
+    """
+    Some dimension checking and resizing to avoid very large inputs on which the line(s) on the resulting tiles could be too big and cause troubles with the current line model.
+    """
+    if clamp_size and image.shape[1] > image.shape[0] and image.shape[1] > clamp_width:
+        image, _ = resize_to_width(image, clamp_width)
 
-    for y_idx in range(y_steps):
-        for x_idx in range(x_steps):
-            if x_idx < x_steps:
-                start_y = y_idx * patch_size
-                end_y = y_idx * patch_size + patch_size
-                start_x = x_idx * patch_size
-                end_x = x_idx * patch_size + patch_size
-                img_patch = image[start_y:end_y, start_x:end_x]
+    elif (
+        clamp_size and image.shape[0] > image.shape[1] and image.shape[0] > clamp_height
+    ):
+        image, _ = resize_to_height(image, clamp_height)
 
-                if img_patch.shape[0] != 0 and img_patch.shape[1] != 0:
-                    if img_patch.shape[1] < patch_size:
-                        pad_width = patch_size - img_patch.shape[1]
-                        patch = np.zeros(
-                            shape=(img_patch.shape[0], pad_width, 3), dtype=np.uint8
-                        )
-                        img_patch = np.hstack([img_patch, patch])
-                        img_patch = cv2.resize(img_patch, (patch_size, patch_size))
-                        img_patch = img_patch.astype(np.uint8)
-                        patches.append(img_patch)
-                    else:
-                        img_patch = cv2.resize(img_patch, (patch_size, patch_size))
-                        patches.append(img_patch)
+    elif image.shape[0] < patch_size:
+        image, _ = resize_to_height(image, patch_size)
 
-    return patches
+    pad_x, pad_y = get_paddings(image, patch_size)
+    padded_img = pad_image(image, pad_x, pad_y, pad_value=255)
+
+    return padded_img, pad_x, pad_y
 
 
 def normalize(image: npt.NDArray) -> npt.NDArray:
     image = image.astype(np.float32)
     image /= 255.0
     return image
+
+
+def get_contours(
+    prediction: npt.NDArray, optimize: bool = True, size_tresh: int = 200
+) -> list:
+    prediction = np.where(prediction > 200, 255, 0)
+    prediction = prediction.astype(np.uint8)
+
+    if np.sum(prediction) > 0:
+        contours, _ = cv2.findContours(
+            prediction, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
+        )
+        print(f"Contours: {len(contours)}")
+
+        if optimize:
+            contours = [optimize_countour(x) for x in contours]
+            contours = [x for x in contours if cv2.contourArea(x) > size_tresh]
+        return contours
+    else:
+        print("Returning []")
+        return []
 
 
 def sigmoid(x) -> float:
@@ -199,21 +236,21 @@ def get_rotation_angle_from_lines(
         print(f"All Angles: {angles}")
 
     if len(low_angles) > len(high_angles) and len(low_angles) > 0:
-        mean_angle = np.mean(low_angles)
+        mean_angle = float(np.mean(low_angles))
 
     # check for clockwise rotation
     elif len(high_angles) > 0:
-        mean_angle = -(90 - np.mean(high_angles))
+        mean_angle = float(-(90 - np.mean(high_angles)))
 
     else:
-        mean_angle = 0
+        mean_angle = 0.0
 
     return mean_angle
 
 
 def get_rotation_angle_from_houghlines(
     image: npt.NDArray, min_length: int = 80
-) -> tuple[npt.NDArray, float]:
+) -> float:
     clahe = cv2.createCLAHE(clipLimit=0.2, tileGridSize=(8, 8))
     cl_img = clahe.apply(image)
     blurred = cv2.GaussianBlur(cl_img, (13, 13), 0)
@@ -320,21 +357,21 @@ def get_line_threshold(line_prediction: npt.NDArray, slice_width: int = 20):
 
         if n_contours == 0:
             print("number of contours is 0")
-            line_threshold = 0
+            line_threshold = 0.0
         else:
             for _, contour in enumerate(contours):
                 x, y, w, h = cv2.boundingRect(contour)
                 y_center = y + (h // 2)
                 y_points.append(y_center)
 
-            line_threshold = np.median(y_points) // n_contours
+            line_threshold = float(np.median(y_points) // n_contours)
     else:
-        line_threshold = 0
+        line_threshold = 0.0
 
     return line_threshold
 
 
-def sort_bbox_centers(bbox_centers: list[tuple[int, int]], line_threshold: int = 20):
+def sort_bbox_centers(bbox_centers: List[Tuple[int, int]], line_threshold: int = 20) -> List:
     sorted_bbox_centers = []
     tmp_line = []
 
@@ -377,7 +414,7 @@ def sort_bbox_centers(bbox_centers: list[tuple[int, int]], line_threshold: int =
     return sorted_bbox_centers
 
 
-def group_line_chunks(sorted_bbox_centers, lines: list[Line]):
+def group_line_chunks(sorted_bbox_centers, lines: List[Line]):
     new_line_data = []
     for bbox_centers in sorted_bbox_centers:
 
@@ -416,7 +453,7 @@ def group_line_chunks(sorted_bbox_centers, lines: list[Line]):
 
 def sort_lines_by_threshold2(
     line_mask: npt.NDArray,
-    lines: list[Line],
+    lines: List[Line],
     threshold: int = 20,
     calculate_threshold: bool = True,
     group_lines: bool = True,
@@ -451,13 +488,6 @@ def sort_lines_by_threshold2(
 
     return new_lines, line_treshold
 
-
-def get_contours(image: npt.NDArray) -> list:
-    contours, _ = cv2.findContours(image, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-
-    return contours
-
-
 def build_line_data(contour: npt.NDArray) -> Line:
     x, y, w, h = cv2.boundingRect(contour)
     x_center = x + (w // 2)
@@ -467,7 +497,7 @@ def build_line_data(contour: npt.NDArray) -> Line:
     return Line(contour, bbox, (x_center, y_center))
 
 
-def get_text_bbox(lines: list[Line]):
+def get_text_bbox(lines: List[Line]):
     all_bboxes = [x.bbox for x in lines]
     min_x = min(a.x for a in all_bboxes)
     min_y = min(a.y for a in all_bboxes)
@@ -541,8 +571,13 @@ def optimize_countour(cnt, e=0.001):
 def pad_to_width(
     img: npt.NDArray, target_width: int, target_height: int, padding: str
 ) -> npt.NDArray:
-    _, width, channels = img.shape
-    tmp_img, ratio = resize_to_width(img, target_width)
+    
+    if len(img.shape) == 3:
+        _, _, channels = img.shape
+    else:
+        channels = 1
+
+    tmp_img, _ = resize_to_width(img, target_width)
 
     height = tmp_img.shape[0]
     middle = (target_height - tmp_img.shape[0]) // 2
@@ -604,7 +639,9 @@ These are basically the two step inbetween the raw line prediction and the OCR p
 """
 
 
-def get_line_data(image: npt.NDArray, line_mask: npt.NDArray) -> LineData:
+def get_line_data(
+    image: npt.NDArray, line_mask: npt.NDArray, group_chunks: bool = True
+) -> LineData:
     angle = get_rotation_angle_from_lines(line_mask)
 
     rot_mask = rotate_from_angle(line_mask, angle)
@@ -613,7 +650,9 @@ def get_line_data(image: npt.NDArray, line_mask: npt.NDArray) -> LineData:
     line_contours = get_contours(rot_mask)
     line_data = [build_line_data(x) for x in line_contours]
     line_data = [x for x in line_data if x.bbox.h > 10]
-    sorted_lines, _ = sort_lines_by_threshold2(rot_mask, line_data)
+    sorted_lines, _ = sort_lines_by_threshold2(
+        rot_mask, line_data, group_lines=group_chunks
+    )
 
     data = LineData(rot_img, rot_mask, angle, sorted_lines)
 
@@ -631,10 +670,9 @@ def extract_line_images(
     return line_images
 
 
-def get_charset(charset: str) -> list[str]:
+def get_charset(charset: str) -> List[str]:
     charset = f"ß{charset}"
-    charset = [x for x in charset]
-    return charset
+    return [x for x in charset]
 
 
 def read_ocr_model_config(config_file: str):

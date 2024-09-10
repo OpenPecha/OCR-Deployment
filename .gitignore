@@ -132,6 +132,7 @@ dmypy.json
 .idea
 Data
 Output
+SampleData/page
 Models
 MonlamOCR/Models
 Map_eText.ipynb

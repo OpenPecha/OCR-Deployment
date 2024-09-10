@@ -1,9 +1,11 @@
 import os
+from typing import List, Tuple
 import cv2
 import numpy as np
 import numpy.typing as npt
 import onnxruntime as ort
 from scipy.special import softmax
+from MonlamOCR.Config import LAYOUT_COLORS
 from MonlamOCR.Data import (
     LineData,
     OCRConfig,
@@ -14,14 +16,13 @@ from pyctcdecode import build_ctcdecoder
 from MonlamOCR.Utils import (
     create_dir,
     extract_line_images,
+    preprocess_image,
     get_file_name,
     binarize,
-    calculate_steps,
-    calculate_paddings,
-    generate_patches,
     get_line_data,
     normalize,
-    pad_image,
+    stitch_predictions,
+    tile_image,
     sigmoid,
     resize_to_height,
     pad_to_height,
@@ -41,51 +42,16 @@ class Detection:
             self._onnx_model_file, providers=self._execution_providers
         )
 
-    def _prepare_image(
-        self,
-        image: npt.NDArray,
-        patch_size: int = 512,
-        resize: bool = True,
-        fix_height: bool = False,
-    ):
-        if resize:
-            if not fix_height:
-                if image.shape[0] > 1.5 * patch_size:
-                    target_height = 2 * patch_size
-                else:
-                    target_height = patch_size
-            else:
-                target_height = patch_size
+    def _preprocess_image(self, image: npt.NDArray, patch_size: int = 512):
+        padded_img, pad_x, pad_y = preprocess_image(image, patch_size)
+        tiles, y_steps = tile_image(padded_img, patch_size)
+        tiles = [binarize(x) for x in tiles]
+        tiles = [normalize(x) for x in tiles]
+        tiles = np.array(tiles)
 
-            image, _ = resize_to_height(image, target_height=target_height)
+        return padded_img, tiles, y_steps, pad_x, pad_y
 
-        steps_x, steps_y = calculate_steps(image, patch_size)
-
-        pad_x, pad_y = calculate_paddings(image, steps_x, steps_y, patch_size)
-        padded_img = pad_image(image, pad_x, pad_y)
-
-        image_patches = generate_patches(padded_img, steps_x, steps_y, patch_size)
-        image_patches = [binarize(x) for x in image_patches]
-
-        image_patches = [normalize(x) for x in image_patches]
-        image_patches = np.array(image_patches)
-
-        return padded_img, image_patches, steps_y, steps_x, pad_x, pad_y
-
-    def _unpatch_image(self, pred_batch: npt.NDArray, y_steps: int):
-        # TODO: add some dimenions range and sequence checking so that things don't blow up when the input is not BxHxWxC
-        dimensional_split = np.split(pred_batch, y_steps, axis=0)
-        x_stacks = []
-
-        for _, x_row in enumerate(dimensional_split):
-            x_stack = np.hstack(x_row)
-            x_stacks.append(x_stack)
-
-        concat_out = np.vstack(x_stacks)
-
-        return concat_out
-
-    def _adjust_prediction(
+    def _crop_prediction(
         self, image: npt.NDArray, prediction: npt.NDArray, x_pad: int, y_pad: int
     ) -> npt.NDArray:
         x_lim = prediction.shape[1] - x_pad
@@ -95,12 +61,6 @@ class Detection:
         prediction = cv2.resize(prediction, dsize=(image.shape[1], image.shape[0]))
 
         return prediction
-
-    def _post_process(self, image: npt.NDArray) -> npt.NDArray:
-        image = image.astype(np.uint8)
-        image *= 255
-
-        return image
 
     def _predict(self, image_batch: npt.NDArray):
         image_batch = np.transpose(image_batch, axes=[0, 3, 1, 2])
@@ -112,9 +72,7 @@ class Detection:
 
         return prediction
 
-    def predict(
-        self, image: npt.NDArray, class_threshold: float = 0.8, fix_height: bool = True
-    ) -> npt.NDArray:
+    def predict(self, image: npt.NDArray, class_threshold: float = 0.8) -> npt.NDArray:
         pass
 
 
@@ -122,20 +80,20 @@ class LineDetection(Detection):
     def __init__(self, config: LineDetectionConfig) -> None:
         super().__init__(config)
 
-    def predict(
-        self, image: npt.NDArray, class_threshold: float = 0.8, fix_height: bool = True
-    ) -> npt.NDArray:
+    def predict(self, image: npt.NDArray, class_threshold: float = 0.9) -> npt.NDArray:
 
-        _, image_patches, y_steps, x_steps, pad_x, pad_y = self._prepare_image(
-            image, patch_size=self._patch_size, fix_height=fix_height
+        _, tiles, y_steps, pad_x, pad_y = self._preprocess_image(
+            image, patch_size=self._patch_size
         )
-        prediction = self._predict(image_patches)
+        prediction = self._predict(tiles)
         prediction = np.squeeze(prediction, axis=1)
         prediction = sigmoid(prediction)
         prediction = np.where(prediction > class_threshold, 1.0, 0.0)
-        merged_image = self._unpatch_image(prediction, y_steps=y_steps)
-        merged_image = self._adjust_prediction(image, merged_image, pad_x, pad_y)
-        merged_image = self._post_process(merged_image)
+        merged_image = stitch_predictions(prediction, y_steps=y_steps)
+        merged_image = self._crop_prediction(image, merged_image, pad_x, pad_y)
+        merged_image = merged_image.astype(np.uint8)
+        merged_image *= 255
+
         return merged_image
 
 
@@ -145,19 +103,68 @@ class LayoutDetection(Detection):
         self._classes = config.classes
         print(f"Layout Classes: {self._classes}")
 
-    def predict(
-        self, image: npt.NDArray, class_threshold: float = 0.8, fix_height: bool = False
+    def create_preview_image(
+        image: npt.NDArray,
+        image_predictions: list,
+        line_predictions: list,
+        caption_predictions: list,
+        margin_predictions: list,
+        alpha: float = 0.4,
     ) -> npt.NDArray:
-        _, image_patches, y_steps, x_steps, pad_x, pad_y = self._prepare_image(
-            image, patch_size=self._patch_size, fix_height=fix_height
+        
+        if image is None:
+            return None
+        
+        mask = np.zeros(image.shape, dtype=np.uint8)
+
+        if len(image_predictions) > 0:
+            color = tuple([int(x) for x in LAYOUT_COLORS["image"].split(",")])
+
+            for idx, _ in enumerate(image_predictions):
+                cv2.drawContours(
+                    mask, image_predictions, contourIdx=idx, color=color, thickness=-1
+                )
+
+        if len(line_predictions) > 0:
+            color = tuple([int(x) for x in LAYOUT_COLORS["line"].split(",")])
+
+            for idx, _ in enumerate(line_predictions):
+                cv2.drawContours(
+                    mask, line_predictions, contourIdx=idx, color=color, thickness=-1
+                )
+
+        if len(caption_predictions) > 0:
+            color = tuple([int(x) for x in LAYOUT_COLORS["caption"].split(",")])
+
+            for idx, _ in enumerate(caption_predictions):
+                cv2.drawContours(
+                    mask, caption_predictions, contourIdx=idx, color=color, thickness=-1
+                )
+
+        if len(margin_predictions) > 0:
+            color = tuple([int(x) for x in LAYOUT_COLORS["margin"].split(",")])
+
+            for idx, _ in enumerate(margin_predictions):
+                cv2.drawContours(
+                    mask, margin_predictions, contourIdx=idx, color=color, thickness=-1
+                )
+
+        cv2.addWeighted(mask, alpha, image, 1 - alpha, 0, image)
+
+        return image
+
+    def predict(self, image: npt.NDArray, class_threshold: float = 0.8) -> npt.NDArray:
+        _, tiles, y_steps, pad_x, pad_y = self._preprocess_image(
+            image, patch_size=self._patch_size
         )
-        prediction = self._predict(image_patches)
+        prediction = self._predict(tiles)
         prediction = np.transpose(prediction, axes=[0, 2, 3, 1])
         prediction = softmax(prediction, axis=-1)
         prediction = np.where(prediction > class_threshold, 1.0, 0)
-        merged_image = self._unpatch_image(prediction, y_steps)
-        merged_image = self._adjust_prediction(image, merged_image, pad_x, pad_y)
-        merged_image = self._post_process(merged_image)
+        merged_image = stitch_predictions(prediction, y_steps=y_steps)
+        merged_image = self._crop_prediction(image, merged_image, pad_x, pad_y)
+        merged_image = merged_image.astype(np.uint8)
+        merged_image *= 255
 
         return merged_image
 
@@ -224,8 +231,15 @@ class OCRInference:
         return logits
 
     def _decode(self, logits: npt.NDArray) -> str:
+
+        if logits.shape[0] == len(self._characters):
+            logits = np.transpose(
+                logits, axes=[1, 0]
+            )  # adjust logits to have shape time, vocab
+
         text = self._ctcdecoder.decode(logits)
         text = text.replace(" ", "")
+        text = text.replace("ß", "")
         text = text.replace("§", " ")
 
         return text
@@ -283,10 +297,10 @@ class OCRPipeline:
 
     def _predict(
         self, image: npt.NDArray, k_factor: float
-    ) -> tuple[list[str], LineData, list[npt.NDArray]]:
+    ) -> Tuple[List[str], LineData, List[npt.NDArray]]:
 
         if isinstance(self.line_config, LineDetectionConfig):
-            line_mask = self.line_inference.predict(image, fix_height=True)
+            line_mask = self.line_inference.predict(image)
             line_data = get_line_data(image, line_mask)
             line_images = extract_line_images(line_data, k_factor)
         else:
@@ -312,8 +326,10 @@ class OCRPipeline:
         )
 
         return page_text, filtered_line_data, line_images
-    
-    def run_ocr(self, image: npt.NDArray, k_factor: float = 1.2) -> tuple[list[str], LineData, list[npt.NDArray]]:
+
+    def run_ocr(
+        self, image: npt.NDArray, k_factor: float = 1.2
+    ) -> Tuple[List[str], LineData, List[npt.NDArray]]:
         page_text, line_data, line_images = self._predict(image, k_factor)
 
         return page_text, line_data, line_images

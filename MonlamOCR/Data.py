@@ -1,4 +1,5 @@
 import numpy.typing as npt
+from typing import Tuple, List, Dict
 from dataclasses import dataclass
 
 
@@ -14,7 +15,7 @@ class BBox:
 class Line:
     contour: npt.NDArray
     bbox: BBox
-    center: tuple[int, int]
+    center: Tuple[int, int]
 
 
 @dataclass
@@ -22,19 +23,19 @@ class LineData:
     image: npt.NDArray
     prediction: npt.NDArray
     angle: float
-    lines: list[Line]
+    lines: List[Line]
 
 
 @dataclass
 class LayoutData:
     image: npt.NDArray
     rotation: float
-    images: list[BBox]
-    text_bboxes: list[BBox]
-    lines: list[Line]
-    captions: list[BBox]
-    margins: list[BBox]
-    predictions: dict[str, npt.NDArray]
+    images: List[BBox]
+    text_bboxes: List[BBox]
+    lines: List[Line]
+    captions: List[BBox]
+    margins: List[BBox]
+    predictions: Dict[str, npt.NDArray]
 
 
 @dataclass
@@ -47,7 +48,7 @@ class LineDetectionConfig:
 class LayoutDetectionConfig:
     model_file: str
     patch_size: int
-    classes: list[str]
+    classes: List[str]
 
 
 @dataclass
@@ -59,4 +60,4 @@ class OCRConfig:
     output_layer: str
     squeeze_channel: bool
     swap_hw: bool
-    charset: list[str]
+    charset: List[str]

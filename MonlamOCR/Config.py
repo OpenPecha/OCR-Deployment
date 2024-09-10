@@ -4,9 +4,21 @@ from huggingface_hub import snapshot_download
 
 MODEL_DICT = {
     "Woodblock": "BDRC/Woodblock",
+    "UCHAN": "BDRC/BigUCHAN_v1",
     "DergeTenjur": "BDRC/DergeTenjur",
     "GoogleBooks_C": "BDRC/GoogleBooks_C_v1",
     "GoogleBooks_E": "BDRC/GoogleBooks_E_v1",
+    "Norbuketaka_C": "BDRC/Norbuketaka_C_V1",
+    "Norbuketaka_E": "BDRC/Norbuketaka_E_V1",
+    "Drutsa-A_E": "BDRC/Drutsa-A_E_v1"
+}
+
+LAYOUT_COLORS = {
+                "background": "0, 0, 0",
+                "image": "45, 255, 0",
+                "line": "255, 100, 0",
+                "margin": "255, 0, 0",
+                "caption": "255, 100, 243"
 }
 
 
@@ -26,7 +38,7 @@ def init_monlam_line_model() -> str:
 
 # download the layout model: https://huggingface.co/BDRC/Photi
 def init_monlam_layout_model() -> str:
-    model_id = "BDRC/Photi"
+    model_id = "BDRC/Photi-v2"
     model_path = snapshot_download(
         repo_id=model_id,
         repo_type="model",
@@ -39,7 +51,7 @@ def init_monlam_layout_model() -> str:
     return model_config
 
 
-def init_monla_ocr_model(identifier: str) -> str:
+def init_monlam_ocr_model(identifier: str) -> str:
     available_models = list(MODEL_DICT.keys())
 
     if identifier in available_models:

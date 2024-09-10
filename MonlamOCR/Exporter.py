@@ -293,7 +293,12 @@ class JsonExporter(Exporter):
         text_bbox = get_text_bbox(lines)
         plain_box = self.get_bbox_points(text_bbox)
 
-        json_record = {"image": image_name, "textbox": plain_box, "lines": plain_lines, "text": text_lines}
+        json_record = {
+            "image": image_name,
+            "textbox": plain_box,
+            "lines": plain_lines,
+            "text": text_lines,
+        }
 
         out_file = f"{self.output_dir}/{image_name}.jsonl"
 
