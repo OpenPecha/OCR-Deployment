@@ -41,7 +41,8 @@ def main():
         output_dir="./data/output",
     )
     image_paths = [
-        "./data/test_images/0001.png",
+        "/Users/tashitsering/Desktop/Work/OCR-Deployment/data/00-3.jpg",
+        "./data/0003.jpg",
         "./data/test_images/0002.jpg",
         "./data/test_images/0003.jpg",
         "./data/test_images/0004.png",
@@ -59,8 +60,10 @@ def main():
         # text = get_page_unicode(page_text)
         # Path(f"./data/output/{image_name}.txt").write_text(text)
 
+    
 
 
 
 if __name__ == "__main__":
     main()
+    

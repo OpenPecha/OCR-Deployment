@@ -39,7 +39,7 @@ pillow==10.4.0
 platformdirs==4.2.2
 pluggy==1.5.0
 pre-commit==3.8.0
--e git+https://github.com/OpenPecha/OCR-Deployment.git@b73a7cf39492996932be9d58b3644b02181abbf8#egg=project_name
+-e git+https://github.com/OpenPecha/OCR-Deployment.git@31d1e816c05e4c9b3c579acd8a12f6e6f0a36d01#egg=project_name
 protobuf==5.27.3
 pyctcdecode==0.5.0
 pydantic==2.8.2

@@ -13,16 +13,6 @@ def send_request_to_api(url, data):
 
 
 def crop_line_using_contour(image_path, contour):
-    """
-    Crops a line from the image using the contour to create a mask.
-
-    Parameters:
-        image_path (str): Path to the input image.
-        contour (list): A list of contour points.
-
-    Returns:
-        cropped_image (numpy.ndarray): The cropped image array.
-    """
     # Load the image
     image = cv2.imread(image_path)
     if image is None:
@@ -50,13 +40,8 @@ if __name__ == "__main__":
     "image_url": "https://s3.amazonaws.com/monlam.ai.ocr/Test/input/0001.png",
     "OCR_model": "Woodblock"
     }
-    # response = send_request_to_api("http://18.206.160.30:8000/process", data)
-    response = send_request_to_api("http://localhost:8000/process/", data=data)
-    contour = response['line_data'][0]['line_annotation']['contour']
-    image_path = Path(f"./0001.png")
-    cropped_image = crop_line_using_contour(image_path, contour)
-    save_path = Path(f"./cropped_line.png")
-    cv2.imwrite(str(save_path), cropped_image)
+    response = send_request_to_api("http://52.205.251.118:80/process/", data)
+    print(response)
 
 
 # Some example images to test the API 
