@@ -26,9 +26,7 @@ from MonlamOCR.Utils import (
     get_line_images_via_local_tps,
     optimize_countour,
     preprocess_image,
-    get_file_name,
     binarize,
-    get_line_data,
     normalize,
     sort_lines_by_threshold2,
     stitch_predictions,
@@ -376,9 +374,7 @@ class OCRPipeline:
                 tps_threshold: float = 0.25) -> Tuple[OCRStatus, OCRREsult | None]:
 
         """
-        
         TODO: Reintegrate proper data structures into this
-        
         """
 
         if isinstance(self.line_config, LineDetectionConfig):
