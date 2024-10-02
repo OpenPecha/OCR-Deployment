@@ -2,6 +2,7 @@ import os
 import cv2
 import json
 import math
+import scipy
 import random
 import statistics
 import numpy as np
@@ -9,6 +10,7 @@ from typing import Dict, List, Tuple
 import numpy.typing as npt
 from math import ceil
 import matplotlib.pyplot as plt
+from tps import ThinPlateSpline
 from MonlamOCR.Data import (
     LayoutDetectionConfig,
     Line,
@@ -97,14 +99,19 @@ def resize_to_width(image, target_width: int = 2048) -> Tuple[npt.NDArray, float
     return image, scale_ratio
 
 
-def binarize(
-    image: npt.ArrayLike, adaptive: bool = True, block_size: int = 51, c: int = 13
-) -> npt.NDArray:
+def binarize(image: npt.ArrayLike, adaptive: bool = True, block_size: int = 51, c: int = 13, denoise: bool = False) -> npt.NDArray:
+
     if len(image.shape) == 3:
         image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
 
+    if denoise:
+        image = cv2.GaussianBlur(image, (3, 3), 0)
+        clahe = cv2.createCLAHE(clipLimit=0.8, tileGridSize=(10, 10))
+        image = clahe.apply(image)
+        image = cv2.fastNlMeansDenoising(image, None, 20, 4, 21)
+
     if adaptive:
-        bw = cv2.adaptiveThreshold(
+        image = cv2.adaptiveThreshold(
             image,
             255,
             cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
@@ -114,10 +121,10 @@ def binarize(
         )
 
     else:
-        _, bw = cv2.threshold(image, 120, 255, cv2.THRESH_BINARY)
+        _, image = cv2.threshold(image, 120, 255, cv2.THRESH_BINARY)
 
-    bw = cv2.cvtColor(bw, cv2.COLOR_GRAY2RGB)
-    return bw
+    image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+    return image
 
 
 def get_paddings(image: npt.NDArray, patch_size: int = 512) -> Tuple[int, int]:
@@ -194,26 +201,10 @@ def normalize(image: npt.NDArray) -> npt.NDArray:
     return image
 
 
-def get_contours(
-    prediction: npt.NDArray, optimize: bool = True, size_tresh: int = 200
-) -> list:
-    prediction = np.where(prediction > 200, 255, 0)
-    prediction = prediction.astype(np.uint8)
+def get_contours(image: npt.NDArray) -> list:
+    contours, _ = cv2.findContours(image, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 
-    if np.sum(prediction) > 0:
-        contours, _ = cv2.findContours(
-            prediction, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
-        )
-        print(f"Contours: {len(contours)}")
-
-        if optimize:
-            contours = [optimize_countour(x) for x in contours]
-            contours = [x for x in contours if cv2.contourArea(x) > size_tresh]
-        return contours
-    else:
-        print("Returning []")
-        return []
-
+    return contours
 
 def sigmoid(x) -> float:
     return 1 / (1 + np.exp(-x))
@@ -224,7 +215,7 @@ def get_rotation_angle_from_lines(
     max_angle: float = 5.0,
     debug_angles: bool = False,
 ) -> float:
-    contours, _ = cv2.findContours(line_mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    contours = get_contours(line_mask)
     mask_threshold = (line_mask.shape[0] * line_mask.shape[1]) * 0.001
     contours = [x for x in contours if cv2.contourArea(x) > mask_threshold]
     angles = [cv2.minAreaRect(x)[2] for x in contours]
@@ -306,12 +297,260 @@ def rotate_from_angle(image: npt.NDArray, angle: float) -> npt.NDArray:
     return rotated_img
 
 
+def get_global_center(slice_image: npt.NDArray, start_x: int, bbox_y: int):
+    """
+    Transfers the coordinates of a 'local' bbox taken from a line back to the image space
+    """
+    contours, _ = cv2.findContours(slice_image, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    areas = [cv2.contourArea(x) for x in contours]
+    biggest_idx = areas.index(max(areas))
+    biggest_contour = contours[biggest_idx]
+    _, _, _, bbox_h = cv2.boundingRect(biggest_contour)
+    center, _, _= cv2.minAreaRect(biggest_contour)
+   
+    center_x = int(center[0])
+    center_y = int(center[1])
+
+    global_x = start_x+center_x
+    global_y = bbox_y+center_y
+
+    return global_x, global_y, bbox_h
+
+
+def check_line_tps(image: npt.NDArray, contour: npt.NDArray, slice_width: int = 40):
+
+    mask = np.zeros(image.shape, dtype=np.uint8)
+    x, y, w, h = cv2.boundingRect(contour)
+
+    cv2.drawContours(mask, [contour], contourIdx=0, color=(255, 255, 255), thickness=-1)
+
+    slice1_start_x = x
+    slice1_end_x = x+slice_width
+
+    slice2_start_x = x+w//4-slice_width
+    slice2_end_x = x+w//4
+
+    slice3_start_x = x+w//2
+    slice3_end_x = x+w//2+slice_width
+
+    slice4_start_x = x+w//2+w//4
+    slice4_end_x = x+w//2+(w//4)+slice_width
+
+    slice5_start_x = x+w-slice_width
+    slice5_end_x = x+w
+
+    # define slices along the bbox from left to right
+    slice_1 = mask[y:y+h, slice1_start_x:slice1_end_x, 0]
+    slice_2 = mask[y:y+h, slice2_start_x:slice2_end_x, 0]
+    slice_3 = mask[y:y+h, slice3_start_x:slice3_end_x, 0]
+    slice_4 = mask[y:y+h, slice4_start_x:slice4_end_x, 0]
+    slice_5 = mask[y:y+h, slice5_start_x:slice5_end_x, 0]
+
+    slice1_center_x, slice1_center_y, bbox1_h = get_global_center(slice_1, slice1_start_x, y)
+    slice2_center_x, slice2_center_y, bbox2_h = get_global_center(slice_2, slice2_start_x, y)
+    slice3_center_x, slice3_center_y, bbox3_h = get_global_center(slice_3, slice3_start_x, y)
+    slice4_center_x, slice4_center_y, bbox4_h = get_global_center(slice_4, slice4_start_x, y)
+    slice5_center_x, slice5_center_y, bbox5_h = get_global_center(slice_5, slice5_start_x, y)
+
+    all_bboxes = [bbox1_h, bbox2_h, bbox3_h, bbox4_h, bbox5_h]
+    all_centers = [slice1_center_y, slice2_center_y, slice3_center_y, slice4_center_y, slice5_center_y]
+
+    min_value = min(all_centers)
+    max_value = max(all_centers)
+    max_ydelta = max_value-min_value
+    mean_bbox_h = np.mean(all_bboxes)
+    mean_center_y = np.mean(all_centers)
+
+    if max_ydelta > mean_bbox_h:
+        target_y = round(mean_center_y)
+
+        input_pts = [
+            [slice1_center_y, slice1_center_x],
+            [slice2_center_y, slice2_center_x],
+            [slice3_center_y, slice3_center_x],
+            [slice4_center_y, slice4_center_x],
+            [slice5_center_y, slice5_center_x]
+        ]
+
+        output_pts = [
+            [target_y, slice1_center_x],
+            [target_y, slice2_center_x],
+            [target_y, slice3_center_x],
+            [target_y, slice4_center_x],
+            [target_y, slice5_center_x]
+        ]
+
+        return True, input_pts, output_pts, max_ydelta
+    else:
+        return False, None, None, 0.0
+
+
+def run_tps(image: npt.NDArray, input_pts, output_pts, add_corners=True, alpha=0.5):
+
+    if len(image.shape) == 3:
+        height, width, _ = image.shape
+    else:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+        height, width, _ = image.shape
+
+    input_pts = np.array(input_pts)
+    output_pts = np.array(output_pts)
+
+    if add_corners:
+        corners = np.array(  # Add corners ctrl points
+        [
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 1.0],
+        ])
+
+        corners *= [height, width]
+        corners *= [height, width]
+
+        input_pts = np.concatenate((input_pts, corners))
+        output_pts = np.concatenate((output_pts, corners))
+
+    # Fit the thin plate spline from output to input
+    tps = ThinPlateSpline(alpha)
+    tps.fit(input_pts, output_pts)
+
+    # Create the 2d meshgrid of indices for output image
+    output_indices = np.indices((height, width), dtype=np.float64).transpose(1, 2, 0)  # Shape: (H, W, 2)
+
+    # Transform it into the input indices
+    input_indices = tps.transform(output_indices.reshape(-1, 2)).reshape(height, width, 2)
+
+    print(f"TPS->Image: {image.shape}")
+    print(f"TPS->Input Indices: {input_indices.shape}")
+
+    # Interpolate the resulting image
+    warped = np.concatenate(
+        [
+            scipy.ndimage.map_coordinates(image[..., channel], input_indices.transpose(2, 0, 1))[..., None]
+            for channel in (0, 1, 2)
+        ],
+        axis=-1,
+    )
+
+    return warped
+
+
+def check_for_tps(image: npt.NDArray, line_contours: List[npt.NDArray]):
+    line_data = []
+    for _, line_cnt in enumerate(line_contours):
+
+        _, y, _, _ = cv2.boundingRect(line_cnt)
+        # TODO: store input and output points to avoid running that step twice
+        tps_status, input_pts, output_pts, max_yd = check_line_tps(image, line_cnt)
+
+        line = {
+            "contour": line_cnt,
+            "tps": tps_status,
+            "input_pts": input_pts,
+            "output_pts": output_pts,
+            "max_yd": max_yd
+        }
+
+        line_data.append(line)
+
+    do_tps = [x["tps"] for x in line_data if x["tps"] is True]
+    ratio = len(do_tps) / len(line_contours)
+
+    return ratio, line_data
+
+
+def get_global_tps_line(line_data: dict):
+    """
+    A simple approach to the most representative curved line in the image assuming that the overall distortion is relatively uniform
+    """
+    all_y_deltas = []
+
+    for line in line_data:
+        if line["tps"] is True:
+            all_y_deltas.append(line["max_yd"])
+        else:
+            all_y_deltas.append(0.0)
+
+    mean_delta = np.mean(all_y_deltas)
+    best_diff = max(all_y_deltas) # just set it to the highest value
+    best_y = None
+
+    for yd in all_y_deltas:
+        if yd > 0:
+            delta = abs(mean_delta - yd) 
+            if delta < best_diff:
+                best_diff = delta
+                best_y = yd
+
+    target_idx = all_y_deltas.index(best_y)
+
+    return target_idx
+
+
+def get_line_images_via_local_tps(image: npt.NDArray, line_data: list, k_factor: float = 1.7):
+
+    default_k_factor = k_factor
+    current_k = default_k_factor
+    line_images = []
+
+    for line in line_data:
+        if line["tps"] is True:
+            output_pts = line["output_pts"]
+            input_pts = line["input_pts"]
+            
+            assert input_pts is not None and output_pts is not None
+
+            tmp_mask = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
+            cv2.drawContours(tmp_mask, [line["contour"]], -1, (255, 255, 255), -1)
+
+            # TODO: check channel dim here..
+            warped_img = run_tps(image, output_pts, input_pts)
+            warped_mask = run_tps(tmp_mask, output_pts, input_pts)
+
+            _, _, _, bbox_h = cv2.boundingRect(line["contour"])
+
+            line_img, adapted_k = get_line_image(warped_img, warped_mask, bbox_h, bbox_tolerance=2.0, k_factor=current_k)
+            line_images.append(line_img)
+
+            if current_k != adapted_k:
+                current_k = adapted_k
+
+        else:
+            tmp_mask = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
+            cv2.drawContours(tmp_mask, [line["contour"]], -1, (255, 255, 255), -1)
+
+            _, _, _, h = cv2.boundingRect(line["contour"])
+            line_img, adapted_k = get_line_image(image, tmp_mask, h, bbox_tolerance=2.0, k_factor=current_k)
+            line_images.append(line_img)
+
+    return line_images
+
+
+
+def apply_global_tps(image: npt.NDArray, line_mask: npt.NDArray, line_data: List):
+    best_idx = get_global_tps_line(line_data)
+    #print(f"Best IDX: {best_idx}")
+    output_pts = line_data[best_idx]["output_pts"]
+    input_pts = line_data[best_idx]["input_pts"]
+
+    assert input_pts is not None and output_pts is not None
+
+    warped_img = run_tps(image, output_pts, input_pts)
+    warped_mask = run_tps(line_mask, output_pts, input_pts)
+
+    return warped_img, warped_mask
+
+
 def mask_n_crop(image: npt.NDArray, mask: npt.NDArray) -> npt.NDArray:
     image = image.astype(np.uint8)
     mask = mask.astype(np.uint8)
 
     if len(image.shape) == 2:
         image = np.expand_dims(image, axis=-1)
+
+    if len(mask.shape) == 3:
+        mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
 
     image_masked = cv2.bitwise_and(image, image, mask, mask)
     image_masked = np.delete(
@@ -332,6 +571,9 @@ def get_line_threshold(line_prediction: npt.NDArray, slice_width: int = 20):
 
     Note: This approach might turn out to be problematic in case of sparsely spread line segments across a page
     """
+
+    if len(line_prediction.shape) == 3:
+        line_prediction = cv2.cvtColor(line_prediction, cv2.COLOR_BGR2GRAY)
 
     x, y, w, h = cv2.boundingRect(line_prediction)
     x_steps = (w // slice_width) // 2
@@ -414,7 +656,7 @@ def sort_bbox_centers(bbox_centers: List[Tuple[int, int]], line_threshold: int =
     return sorted_bbox_centers
 
 
-def group_line_chunks(sorted_bbox_centers, lines: List[Line]):
+def group_line_chunks(sorted_bbox_centers, lines: List[Line], adaptive_grouping: bool = True):
     new_line_data = []
     for bbox_centers in sorted_bbox_centers:
 
@@ -427,16 +669,27 @@ def group_line_chunks(sorted_bbox_centers, lines: List[Line]):
                         contour_stack.append(line_data.contour)
                         break
 
+            if adaptive_grouping:
+                for contour in contour_stack:
+                    x, y, w, h = cv2.boundingRect(contour)
+                    width_offset = int(w * 0.05)
+                    height_offset = int(h * 0.05)
+                    w += width_offset
+                    h += height_offset
+                    
             stacked_contour = np.vstack(contour_stack)
             stacked_contour = cv2.convexHull(stacked_contour)
-            # TODO: are both calls necessary?
+            
+            # TODO: both calls necessary?
             x, y, w, h = cv2.boundingRect(stacked_contour)
+            _, _, angle = cv2.minAreaRect(stacked_contour)
+            
             _bbox = BBox(x, y, w, h)
             x_center = _bbox.x + (_bbox.w // 2)
             y_center = _bbox.y + (_bbox.h // 2)
 
             new_line = Line(
-                contour=stacked_contour, bbox=_bbox, center=(x_center, y_center)
+                contour=stacked_contour, bbox=_bbox, center=(x_center, y_center), angle=angle
             )
 
             new_line_data.append(new_line)
@@ -488,13 +741,51 @@ def sort_lines_by_threshold2(
 
     return new_lines, line_treshold
 
+
+def filter_line_contours(image: npt.NDArray, line_contours, threshold: float = 0.01) -> List:
+    filtered_contours = []
+    for _, line_cnt in enumerate(line_contours):
+
+        _, _, w, h = cv2.boundingRect(line_cnt)
+
+        if w > image.shape[1] * threshold and h > 10:
+            filtered_contours.append(line_cnt)
+
+    return filtered_contours
+
+
+def build_raw_line_data(image: npt.NDArray, line_mask: npt.NDArray):
+
+    if len(line_mask.shape) == 3:
+        line_mask = cv2.cvtColor(line_mask, cv2.COLOR_BGR2GRAY)
+
+    angle = get_rotation_angle_from_lines(line_mask)
+    rot_mask = rotate_from_angle(line_mask, angle)
+    rot_img = rotate_from_angle(image, angle)
+
+    line_contours = get_contours(rot_mask)
+    line_contours = [x for x in line_contours if cv2.contourArea(x) > 10]
+
+    rot_mask = cv2.cvtColor(rot_mask, cv2.COLOR_GRAY2RGB)
+
+    return rot_img, rot_mask, line_contours, angle
+
+
 def build_line_data(contour: npt.NDArray) -> Line:
+
+    """center, dimension, angle = cv2.minAreaRect(contour)
+    x, y = center
+    w, h = dimension
+    print(f"cv2MinArea -> X: {x}, Y: {y}, W: {w}, H: {h}")
+    """
+    _, _, angle = cv2.minAreaRect(contour)
     x, y, w, h = cv2.boundingRect(contour)
+    # print(f"cvBoundingRect -> X: {x}, Y: {y}, W: {w}, H: {h}")
     x_center = x + (w // 2)
     y_center = y + (h // 2)
 
     bbox = BBox(x, y, w, h)
-    return Line(contour, bbox, (x_center, y_center))
+    return Line(contour, bbox, (x_center, y_center), angle)
 
 
 def get_text_bbox(lines: List[Line]):
@@ -509,24 +800,6 @@ def get_text_bbox(lines: List[Line]):
 
     return bbox
 
-
-def extract_line(line: Line, image: npt.NDArray, k_factor: float = 1.2) -> npt.NDArray:
-    bbox_h = line.bbox.h
-
-    iterations = 1
-    tmp_img = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
-    cv2.drawContours(tmp_img, [line.contour], -1, (255, 255, 255), -1)
-    # TODO: factor in the width so that longer lines get a lower k_size, otherwise the whole thing overshoots
-    k_size = int(bbox_h * k_factor)
-
-    morph_rect = cv2.getStructuringElement(
-        shape=cv2.MORPH_RECT, ksize=(k_size, int(k_size * 1.5))
-    )
-    iterations = 1
-    tmp_img = cv2.dilate(tmp_img, kernel=morph_rect, iterations=iterations)
-    masked_line = mask_n_crop(image, tmp_img)
-
-    return masked_line
 
 
 def pol2cart(theta, rho):
@@ -659,13 +932,48 @@ def get_line_data(
     return data
 
 
-def extract_line_images(
-    data: LineData, k_factor: float = 0.75, binarization: bool = True
-):
-    line_images = [extract_line(x, data.image, k_factor) for x in data.lines]
+def extract_line(image: npt.NDArray, mask: npt.NDArray, bbox_h: int, k_factor: float = 1.2) -> npt.NDArray:
+    iterations = 2
+    k_size = int(bbox_h * k_factor)
+    morph_multiplier = k_factor
 
-    if binarization:
-        line_images = [binarize(x) for x in line_images]
+    morph_rect = cv2.getStructuringElement(shape=cv2.MORPH_RECT, ksize=(k_size, int(k_size * morph_multiplier)))
+    iterations = 1
+    dilated_mask = cv2.dilate(mask, kernel=morph_rect, iterations=iterations)
+    masked_line = mask_n_crop(image, dilated_mask)
+
+    return masked_line
+
+
+def get_line_image(image: npt.NDArray, mask: npt.NDArray, bbox_h: int, bbox_tolerance: float = 2.5, k_factor: float = 1.2):
+    tmp_k = k_factor
+    line_img = extract_line(image, mask, bbox_h, k_factor=tmp_k)
+    
+    while line_img.shape[0] > bbox_h * bbox_tolerance:
+        tmp_k = tmp_k - 0.1
+        #print(f"Adjusted k_factor to: {tmp_k}")
+        line_img = extract_line(image, mask, bbox_h, k_factor=tmp_k)
+
+    return line_img, tmp_k
+
+
+def extract_line_images(image: npt.NDArray, line_data: List[npt.NDArray], default_k: float = 1.7, bbox_tolerance: float = 2.5):
+    default_k_factor = default_k
+    current_k = default_k_factor
+
+    current_k = default_k_factor
+    line_images = []
+
+    for _, line in enumerate(line_data):
+        _, _, _, h = cv2.boundingRect(line.contour)
+        tmp_mask = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
+        cv2.drawContours(tmp_mask, [line.contour], -1, (255, 255, 255), -1)
+
+        line_img, adapted_k = get_line_image(image, tmp_mask, h, bbox_tolerance=bbox_tolerance, k_factor=current_k)
+        line_images.append(line_img)
+
+        if current_k != adapted_k:
+            current_k = adapted_k
 
     return line_images
 

@@ -1,6 +1,22 @@
 import numpy.typing as npt
+from enum import Enum
 from typing import Tuple, List, Dict
 from dataclasses import dataclass
+
+
+
+class OCRStatus(Enum):
+    SUCCESS = 0
+    FAILED = 1
+
+class TPSMode(Enum):
+    GLOBAL = 0
+    LOCAL = 1
+
+class LineMerge(Enum):
+    Merge = 0
+    Stack = 1
+
 
 
 @dataclass
@@ -16,6 +32,7 @@ class Line:
     contour: npt.NDArray
     bbox: BBox
     center: Tuple[int, int]
+    angle: float
 
 
 @dataclass
@@ -61,3 +78,11 @@ class OCRConfig:
     squeeze_channel: bool
     swap_hw: bool
     charset: List[str]
+
+
+@dataclass
+class OCRREsult:
+    text: List[str]
+    lines: List[Line]
+    line_images: List[npt.NDArray]
+    angle: float

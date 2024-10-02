@@ -17,14 +17,12 @@ from MonlamOCR.Utils import create_dir, extract_line_images, get_file_name, get_
 from MonlamOCR.Config import init_monlam_line_model, init_monlam_layout_model
 from MonlamOCR.Inference import LineDetection, LayoutDetection
 
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--input", type=str, required=True)
     parser.add_argument("-o", "--output", type=str, required=False, default="Output")
     parser.add_argument("-e", "--file_extension", type=str, required=False, default="jpg")
-    parser.add_argument("-m", "--mode", choices=["Line", "Layout"], default="Line")
+    parser.add_argument("-m", "--mode", choices=["Line", "Layout"], default="Layout")
     parser.add_argument("-k", "--k_factor", type=float, required=False, default=1.2)
 
     args = parser.parse_args()
@@ -35,13 +33,20 @@ if __name__ == "__main__":
     k_factor = args.k_factor
 
     if not os.path.isdir(input_dir):
-        print(f"ERROR: Input dir is not a valid directory")
+        print("ERROR: Input dir is not a valid directory")
         sys.exit(1)
+
+    if not os.path.isdir(output_dir):
+        print("ERROR: Output dir is not a valid directory. Writing outputs to 'Output'")
+        output_dir = "Output"
+
+    output_dir = os.path.join(input_dir, output_dir)
     
+    create_dir(output_dir)
+    print(f"Creating Output Directory: {output_dir}")
+
     images = natsorted(glob(f"{input_dir}/*.{file_ext}"))
     print(f"Images: {len(images)}")
-
-    create_dir(output_dir)
 
     if mode == "Line":
         line_model_config_file = init_monlam_line_model()

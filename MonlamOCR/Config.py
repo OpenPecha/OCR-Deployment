@@ -10,7 +10,7 @@ MODEL_DICT = {
     "GoogleBooks_E": "BDRC/GoogleBooks_E_v1",
     "Norbuketaka_C": "BDRC/Norbuketaka_C_V1",
     "Norbuketaka_E": "BDRC/Norbuketaka_E_V1",
-    "Drutsa-A_E": "BDRC/Drutsa-A_E_v1"
+    "Drutsa-A_E": "BDRC/Drutsa-A_E_v1",
 }
 
 LAYOUT_COLORS = {

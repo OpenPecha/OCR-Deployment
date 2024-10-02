@@ -1,5 +1,7 @@
 import abc
 import json
+from typing import List
+import pyewts
 import logging
 import numpy as np
 import numpy.typing as npt
@@ -17,6 +19,7 @@ from MonlamOCR.Utils import (
 class Exporter:
     def __init__(self, output_dir: str):
         self.output_dir = output_dir
+        self.converter = pyewts.pyewts()
         logging.info("Init Exporter")
 
     @classmethod
@@ -211,20 +214,20 @@ class PageXMLExporter(Exporter):
         self,
         image: np.array,
         image_name: str,
-        line_data: LineData,
+        lines: List[Line],
         text_lines: list[str],
         optimize: bool = True,
         bbox: bool = False,
+        angle: float = 0.0
     ):
-        lines = [x for x in line_data.lines]
 
-        if line_data.angle != abs(0):
+        if angle != abs(0):
             x_center = image.shape[1] // 2
             y_center = image.shape[0] // 2
 
             for line in lines:
                 line.contour = rotate_contour(
-                    line.contour, x_center, y_center, line_data.angle
+                    line.contour, x_center, y_center, angle
                 )
 
         if optimize:
@@ -265,20 +268,20 @@ class JsonExporter(Exporter):
         self,
         image: np.array,
         image_name: str,
-        line_data: LineData,
+        lines: List[Line],
         text_lines: list[str],
         optimize: bool = True,
         bbox: bool = False,
+        angle: float = 0.0
     ):
-        lines = [x for x in line_data.lines]
 
-        if line_data.angle != abs(0):
+        if angle != abs(0):
             x_center = image.shape[1] // 2
             y_center = image.shape[0] // 2
 
             for line in lines:
                 line.contour = rotate_contour(
-                    line.contour, x_center, y_center, line_data.angle
+                    line.contour, x_center, y_center, angle
                 )
 
         if optimize:
