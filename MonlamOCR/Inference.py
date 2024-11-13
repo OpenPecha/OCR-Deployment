@@ -50,7 +50,7 @@ class CTCDecoder:
             self.charset = charset
             
         self.ctc_vocab = self.charset.copy()
-        #self.ctc_vocab.insert(0, " ")
+        self.ctc_vocab.insert(0, " ")
         self.ctc_decoder = build_ctcdecoder(self.ctc_vocab)
 
     def encode(self, label: str):
@@ -60,6 +60,11 @@ class CTCDecoder:
         return "".join(self.charset[x-1] for x in inputs)
     
     def ctc_decode(self, logits):
+        if logits.shape[0] == len(self.ctc_vocab):
+            logits = np.transpose(
+                logits, axes=[1, 0]
+            )  # adjust logits to have shape time, vocab
+
         return self.ctc_decoder.decode(logits).replace(" ", "")
 
 
@@ -236,7 +241,7 @@ class OCRInference:
         self.ocr_session = ort.InferenceSession(
             self._onnx_model_file, providers=self._execution_providers
         )
-
+        print(f"Setting up CTC Decoder: {self._characters}")
         self.decoder = CTCDecoder(self._characters)
 
     def _pad_ocr_line(
@@ -298,12 +303,6 @@ class OCRInference:
         return logits
 
     def _decode(self, logits: npt.NDArray) -> str:
-
-        if logits.shape[0] == len(self._characters):
-            logits = np.transpose(
-                logits, axes=[1, 0]
-            )  # adjust logits to have shape time, vocab
-
         text = self.decoder.ctc_decode(logits)
 
         return text

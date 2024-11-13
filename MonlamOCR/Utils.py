@@ -979,7 +979,12 @@ def extract_line_images(image: npt.NDArray, line_data: List[npt.NDArray], defaul
 
 
 def get_charset(charset: str) -> List[str]:
-    charset = f"ß{charset}"
+    if isinstance(charset, str):
+        charset = [x for x in charset]
+
+    elif isinstance(charset, List):
+        charset = charset
+    
     return [x for x in charset]
 
 
@@ -1008,7 +1013,7 @@ def read_ocr_model_config(config_file: str):
         output_layer,
         squeeze_channel_dim,
         swap_hw,
-        characters,
+        characters
     )
 
     return config

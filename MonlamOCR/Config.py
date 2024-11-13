@@ -4,7 +4,7 @@ from huggingface_hub import snapshot_download
 
 MODEL_DICT = {
     "Woodblock": "BDRC/Woodblock",
-    "UCHAN": "BDRC/BigUCHAN_v1",
+    "UCHAN": "BDRC/BigUchan",
     "DergeTenjur": "BDRC/DergeTenjur",
     "GoogleBooks_C": "BDRC/GoogleBooks_C_v1",
     "GoogleBooks_E": "BDRC/GoogleBooks_E_v1",
