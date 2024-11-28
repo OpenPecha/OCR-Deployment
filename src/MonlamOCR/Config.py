@@ -51,7 +51,7 @@ def init_monla_ocr_model(identifier: str) -> str:
             local_dir=f"Models/{model_id}",
         )
 
-        model_config = f"{model_path}/config.json"
+        model_config = f"{model_path}/model_config.json"
         assert os.path.isfile(model_config)
 
         return model_config

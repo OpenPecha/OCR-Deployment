@@ -139,3 +139,5 @@ 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
 Models
 data
 .env
+.DS_Store
+data/
