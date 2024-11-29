@@ -2,7 +2,7 @@ import cv2
 import pyewts
 from pathlib import Path
 from Inference import OCRPipeline
-from Config import init_monlam_line_model, init_monla_ocr_model
+from Config import init_monlam_line_model, init_monlam_ocr_model
 from Utils import read_line_model_config
 pyewt = pyewts.pyewts()
 
@@ -36,7 +36,7 @@ def initialize_ocr_pipeline(ocr_model_name: str, output_dir: str) -> OCRPipeline
         OCRPipeline: Initialized OCR pipeline object.
     """
     line_model_config = init_monlam_line_model()
-    ocr_config = init_monla_ocr_model(ocr_model_name)
+    ocr_config = init_monlam_ocr_model(ocr_model_name)
     line_config = read_line_model_config(line_model_config)
     ocr = OCRPipeline(
         ocr_config=ocr_config,
@@ -87,7 +87,7 @@ def process_directory(input_dir: Path, output_dir: Path, ocr_model_name: str) ->
 def main():
     input_dir = Path("data/input")  
     output_dir = Path("data/output") 
-    ocr_model_name = "Woodblock" 
+    ocr_model_name = "Woodblock"
 
     process_directory(input_dir, output_dir, ocr_model_name)
 
