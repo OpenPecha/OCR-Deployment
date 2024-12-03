@@ -4,14 +4,14 @@ import numpy as np
 import numpy.typing as npt
 import onnxruntime as ort
 from scipy.special import softmax
-from MonlamOCR.Data import (
+from Data import (
     LineData,
     OCRConfig,
     LineDetectionConfig,
     LayoutDetectionConfig,
 )
 from pyctcdecode import build_ctcdecoder
-from MonlamOCR.Utils import (
+from Utils import (
     create_dir,
     extract_line_images,
     get_file_name,

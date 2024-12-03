@@ -5,10 +5,10 @@ import os
 import tempfile
 import pyewts
 import requests
-from MonlamOCR.Inference import OCRPipeline
-from MonlamOCR.Config import init_monlam_line_model, init_monla_ocr_model
-from MonlamOCR.Utils import read_line_model_config
-from MonlamOCR.Data import LineData
+from Inference import OCRPipeline
+from Config import init_monlam_line_model, init_monlam_ocr_model
+from Utils import read_line_model_config
+from Data import LineData
 app = FastAPI()
 
 # Initialize your models and configs
@@ -17,7 +17,7 @@ pyewt = pyewts.pyewts()
 
 def initialize_models(OCR_model: str):
     line_model_config = init_monlam_line_model()
-    ocr_config = init_monla_ocr_model(OCR_model)
+    ocr_config = init_monlam_ocr_model(OCR_model)
     line_config = read_line_model_config(line_model_config)
     ocr_pipeline = OCRPipeline(
         ocr_config=ocr_config,
@@ -61,13 +61,12 @@ def get_line_data_and_page_text(line_inference, image_name):
     for line_num, line_info in enumerate(line_inference, 1):
         line_dict = {
             "line_id": f"{image_name}_{line_num}",
-            "line_text": pyewt.toUnicode(line_info['text']) ,
+            "line_text": pyewt.toUnicode(line_info['text']),
             "line_annotation": line_info['line_annotation']
         }
         line_data.append(line_dict)
         page_text += pyewt.toUnicode(line_info['text']) + "\n"
     return line_data, page_text
-
 
 
 @app.post("/process/")
@@ -89,13 +88,13 @@ async def process_file(data: dict):
         return {
             "image_name": image_name,
             "OCR_model": {
-                        "Name": OCR_model_name,
-                        "Version": "v1"
-                        },
+                "Name": OCR_model_name,
+                "Version": "v1"
+            },
             "Line_model": {
-                        "Name": "PhotiLines",
+                "Name": "PhotiLines",
                         "Version": "v1"
-                        },
+            },
             "Page_text": page_text,
             "line_data": line_data
         }

@@ -5,8 +5,8 @@ import numpy as np
 import numpy.typing as npt
 from xml.dom import minidom
 import xml.etree.ElementTree as etree
-from MonlamOCR.Data import BBox, Line, LayoutData, LineData
-from MonlamOCR.Utils import (
+from Data import BBox, Line, LayoutData, LineData
+from Utils import (
     get_text_bbox,
     get_utc_time,
     rotate_contour,
