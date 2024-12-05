@@ -7,7 +7,8 @@ MODEL_DICT = {
     "DergeTenjur": "BDRC/DergeTenjur",
     "GoogleBooks_C": "BDRC/GoogleBooks_C_v1",
     "GoogleBooks_E": "BDRC/GoogleBooks_E_v1",
-    "LhasaKanjur": "BDRC/LhasaKanjur"
+    "LhasaKanjur": "BDRC/LhasaKanjur",
+    "BigUchen": "BDRC/BigUCHAN_v1"
 }
 
 

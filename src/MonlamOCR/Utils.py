@@ -7,7 +7,7 @@ import numpy as np
 import numpy.typing as npt
 from datetime import datetime
 import matplotlib.pyplot as plt
-from Data import (
+from MonlamOCR.Data import (
     LayoutDetectionConfig,
     Line,
     BBox,
@@ -306,7 +306,7 @@ def get_line_threshold(line_prediction: npt.NDArray, slice_width: int = 20):
         x_start = x + x_offset
         x_end = x_start + slice_width
 
-        _slice = line_prediction[y : y + h, x_start:x_end]
+        _slice = line_prediction[y: y + h, x_start:x_end]
         contours, _ = cv2.findContours(_slice, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         bbox_numbers.append((len(contours), contours))
 

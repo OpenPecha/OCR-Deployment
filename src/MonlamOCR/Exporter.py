@@ -5,8 +5,8 @@ import numpy as np
 import numpy.typing as npt
 from xml.dom import minidom
 import xml.etree.ElementTree as etree
-from Data import BBox, Line, LayoutData, LineData
-from Utils import (
+from MonlamOCR.Data import BBox, Line, LayoutData, LineData
+from MonlamOCR.Utils import (
     get_text_bbox,
     get_utc_time,
     rotate_contour,
@@ -76,7 +76,8 @@ class Exporter:
 
     @staticmethod
     def get_bbox_points(bbox: BBox):
-        points = f"{bbox.x},{bbox.y} {bbox.x + bbox.w},{bbox.y} {bbox.x + bbox.w},{bbox.y + bbox.h} {bbox.x},{bbox.y + bbox.h}"
+        points = f"{bbox.x},{bbox.y} {bbox.x + bbox.w},{bbox.y} {bbox.x +
+                                                                 bbox.w},{bbox.y + bbox.h} {bbox.x},{bbox.y + bbox.h}"
         return points
 
 

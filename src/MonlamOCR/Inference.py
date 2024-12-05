@@ -4,14 +4,14 @@ import numpy as np
 import numpy.typing as npt
 import onnxruntime as ort
 from scipy.special import softmax
-from Data import (
+from MonlamOCR.Data import (
     LineData,
     OCRConfig,
     LineDetectionConfig,
     LayoutDetectionConfig,
 )
 from pyctcdecode import build_ctcdecoder
-from Utils import (
+from MonlamOCR.Utils import (
     create_dir,
     extract_line_images,
     get_file_name,
@@ -324,7 +324,7 @@ class OCRPipeline:
         # )
 
         return line_inference
-    
+
     # def run_ocr(self, image: npt.NDArray, k_factor: float = 1.2) -> tuple[list[str], LineData, list[npt.NDArray]]:
     #     page_text, line_data, line_images = self._predict(image, k_factor)
 
