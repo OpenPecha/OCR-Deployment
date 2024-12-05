@@ -6,7 +6,7 @@ import tempfile
 import pyewts
 import requests
 from MonlamOCR.Inference import OCRPipeline
-from MonlamOCR.Config import init_monlam_line_model, init_monla_ocr_model
+from MonlamOCR.Config import init_monlam_line_model, init_monlam_ocr_model
 from MonlamOCR.Utils import read_line_model_config
 from MonlamOCR.Data import LineData
 app = FastAPI()
@@ -17,7 +17,7 @@ pyewt = pyewts.pyewts()
 
 def initialize_models(OCR_model: str):
     line_model_config = init_monlam_line_model()
-    ocr_config = init_monla_ocr_model(OCR_model)
+    ocr_config = init_monlam_ocr_model(OCR_model)
     line_config = read_line_model_config(line_model_config)
     ocr_pipeline = OCRPipeline(
         ocr_config=ocr_config,
