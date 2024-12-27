@@ -314,23 +314,9 @@ class OCRPipeline:
         return page_text, filtered_line_data, line_images
 
     def save_image(self, image: npt.NDArray, path: str):
-        """
-        Save an image to the specified path.
-
-        Args:
-            image (npt.NDArray): The image to save.
-            path (str): The file path where the image will be saved.
-        """
         cv2.imwrite(path, image)
 
     def save_line_images(self, line_images: list[npt.NDArray], image_name: str):
-        """
-        Save the extracted line images to the output directory.
-
-        Args:
-            line_images (list[npt.NDArray]): List of line images.
-            image_name (str): Original image name without extension.
-        """
         line_images_dir = os.path.join(self.output_dir, "line_images")
         os.makedirs(line_images_dir, exist_ok=True)
         for idx, line_image in enumerate(line_images):

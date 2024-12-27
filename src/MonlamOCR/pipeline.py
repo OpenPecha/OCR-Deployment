@@ -4,7 +4,11 @@ from pathlib import Path
 from Inference import OCRPipeline
 from Config import init_monlam_line_model, init_monlam_ocr_model
 from Utils import read_line_model_config
+from datetime import datetime
+
 pyewt = pyewts.pyewts()
+
+LOG_FILE = "processing_log.txt"
 
 
 def get_page_unicode(line_texts: list) -> str:
@@ -27,16 +31,44 @@ def initialize_ocr_pipeline(ocr_model_name: str, output_dir: str) -> OCRPipeline
     return ocr
 
 
+def convert_image_to_jpg(image_path: Path, output_dir: Path) -> Path:
+    image = cv2.imread(str(image_path))
+    image_name = image_path.stem + ".jpg"
+    output_image_path = output_dir / image_name
+    cv2.imwrite(str(output_image_path), image)
+
+    return output_image_path
+
+
+def log_processed_image(image_name: str) -> None:
+    with open(LOG_FILE, "a") as log_file:
+        log_file.write(f"{datetime.now()} - Processed: {image_name}\n")
+
+
+def has_been_processed(image_name: str) -> bool:
+    if Path(LOG_FILE).exists():
+        with open(LOG_FILE, "r") as log_file:
+            log_lines = log_file.readlines()
+            for line in log_lines:
+                if image_name in line:
+                    return True
+    return False
+
+
 def process_image(ocr: OCRPipeline, image_path: Path, output_dir: Path) -> None:
     image_name = image_path.stem
+    if has_been_processed(image_name):
+        print(f"Skipping already processed image: {image_name}")
+        return
+
     image = cv2.imread(str(image_path))
 
     page_text, line_data, line_images = ocr.run_ocr(image=image, image_name=image_name)
 
-
+    # Save Unicode text
     unicode_text = get_page_unicode(page_text)
     text_dir = output_dir / "text"
-    text_dir.mkdir(parents=True, exist_ok=True)  
+    text_dir.mkdir(parents=True, exist_ok=True)
     output_file = text_dir / f"{image_name}.txt"
     output_file.write_text(unicode_text, encoding="utf-8")
 
@@ -45,20 +77,25 @@ def process_image(ocr: OCRPipeline, image_path: Path, output_dir: Path) -> None:
     line_images_dir.mkdir(parents=True, exist_ok=True)
     ocr.save_line_images(line_images, str(line_images_dir))
 
-    print(f"Output saved to {output_file} and line images saved to {line_images_dir}")
+    log_processed_image(image_name)
 
+    print(f"text saved to {output_file} and line images saved to {line_images_dir}")
 
 
 def process_directory(input_dir: Path, output_dir: Path, ocr_model_name: str) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     ocr = initialize_ocr_pipeline(ocr_model_name, str(output_dir))
-    for image_path in input_dir.glob("*.jpg"):
-        process_image(ocr, image_path, output_dir)
+    for subfolder in input_dir.iterdir():
+        if subfolder.is_dir():
+            for image_path in subfolder.glob("*"): 
+                if image_path.suffix.lower() not in [".jpg"]:
+                    image_path = convert_image_to_jpg(image_path, subfolder)
+                process_image(ocr, image_path, output_dir)
 
 
 def main():
-    input_dir = Path("data/input")
+    input_dir = Path("/Users/tenkal/OpenPecha/ocr-e2e-benchmark/data/source_images")
     output_dir = Path("data/output")
     ocr_model_name = "Woodblock"
 
