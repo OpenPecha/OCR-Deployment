@@ -7,7 +7,7 @@ import numpy as np
 import numpy.typing as npt
 from datetime import datetime
 import matplotlib.pyplot as plt
-from MonlamOCR.Data import (
+from Data import (
     LayoutDetectionConfig,
     Line,
     BBox,

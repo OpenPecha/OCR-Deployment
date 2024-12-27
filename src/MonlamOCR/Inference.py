@@ -4,14 +4,14 @@ import numpy as np
 import numpy.typing as npt
 import onnxruntime as ort
 from scipy.special import softmax
-from MonlamOCR.Data import (
+from Data import (
     LineData,
     OCRConfig,
     LineDetectionConfig,
     LayoutDetectionConfig,
 )
 from pyctcdecode import build_ctcdecoder
-from MonlamOCR.Utils import (
+from Utils import (
     create_dir,
     extract_line_images,
     get_file_name,
@@ -248,7 +248,7 @@ class OCRInference:
 class OCRPipeline:
     """
     Note: The handling of line model vs. layout model is kind of provisional here and totally depends on the way you want to run this.
-    You could also pass both configs to the the pipeline, run both models and merge the (partially) overlapping output before extracting the line images to compensate for the strengths/weaknesses
+    You could also pass both configs to the pipeline, run both models and merge the (partially) overlapping output before extracting the line images to compensate for the strengths/weaknesses
     of either model. So that is basically up to you.
 
     """
@@ -298,8 +298,6 @@ class OCRPipeline:
 
         page_text = []
         filtered_lines = []
-        curr = {}
-        line_inference = []
 
         for line_img, line_info in zip(line_images, line_data.lines):
             pred = self.ocr_inference.run(line_img)
@@ -308,29 +306,39 @@ class OCRPipeline:
             if pred != "":
                 page_text.append(pred)
                 filtered_lines.append(line_info)
-                curr = {
-                    "line_annotation": {
-                        'center': line_info.center,
-                        'bbox': line_info.bbox,
-                        'contour': (line_info.contour).tolist()
-                    },
-                    "text": pred,
-                }
-                line_inference.append(curr)
-                curr = {}
 
-        # filtered_line_data = LineData(
-        #     line_data.image, line_data.prediction, line_data.angle, filtered_lines
-        # )
+        filtered_line_data = LineData(
+            line_data.image, line_data.prediction, line_data.angle, filtered_lines
+        )
 
-        return line_inference
+        return page_text, filtered_line_data, line_images
 
-    # def run_ocr(self, image: npt.NDArray, k_factor: float = 1.2) -> tuple[list[str], LineData, list[npt.NDArray]]:
-    #     page_text, line_data, line_images = self._predict(image, k_factor)
+    def save_image(self, image: npt.NDArray, path: str):
+        """
+        Save an image to the specified path.
 
-    #     return page_text, line_data, line_images
+        Args:
+            image (npt.NDArray): The image to save.
+            path (str): The file path where the image will be saved.
+        """
+        cv2.imwrite(path, image)
 
-    def run_ocr(self, image: npt.NDArray, k_factor: float = 1.2) -> tuple[list[str], LineData, list[npt.NDArray]]:
-        line_inference = self._predict(image, k_factor)
+    def save_line_images(self, line_images: list[npt.NDArray], image_name: str):
+        """
+        Save the extracted line images to the output directory.
 
-        return line_inference
+        Args:
+            line_images (list[npt.NDArray]): List of line images.
+            image_name (str): Original image name without extension.
+        """
+        line_images_dir = os.path.join(self.output_dir, "line_images")
+        os.makedirs(line_images_dir, exist_ok=True)
+        for idx, line_image in enumerate(line_images):
+            output_path = os.path.join(line_images_dir, f"{image_name}_{idx + 1}.png")
+            self.save_image(line_image, output_path)
+
+    def run_ocr(self, image: npt.NDArray, image_name: str, k_factor: float = 1.2) -> tuple[list[str], LineData, list[npt.NDArray]]:
+        page_text, line_data, line_images = self._predict(image, k_factor)
+        self.save_line_images(line_images, image_name)
+
+        return page_text, line_data, line_images
